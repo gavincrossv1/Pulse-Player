@@ -1,0 +1,135 @@
+/* src/assets/styles/main.css */
+/* Pulse Player 极简暗黑设计系统与动效规范 */
+
+:root {
+  --pulse-pink: #FB7299;
+  --pulse-pink-hover: #FC8BAB;
+  --pulse-pink-active: #E05D84;
+  --pulse-pink-light: rgba(251, 114, 153, 0.18);
+
+  --bg-home: #18191C;
+  --bg-card: #222427;
+  --bg-card-hover: #2B2D31;
+  --bg-card-active: #32353A;
+  
+  --border-color: #313438;
+  --border-dashed: #4E535B;
+  
+  --text-primary: #FFFFFF;
+  --text-secondary: #9499A0;
+  --text-muted: #61666D;
+  
+  --control-gradient: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.45) 60%, rgba(0, 0, 0, 0) 100%);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body, #app {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* 按钮通用动画 */
+button {
+  border: none;
+  outline: none;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* 自定义进度条展开动效 */
+.progress-bar-container {
+  height: 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.progress-track {
+  width: 100%;
+  height: 3px;
+  background-color: rgba(255, 255, 255, 0.3);
+  border-radius: 1.5px;
+  position: relative;
+  transition: height 0.18s ease;
+}
+
+.progress-bar-container:hover .progress-track,
+.progress-bar-container.is-dragging .progress-track {
+  height: 6px;
+  border-radius: 3px;
+}
+
+
+.progress-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background-color: var(--pulse-pink);
+  border-radius: inherit;
+}
+
+.progress-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: #FFFFFF;
+  border: 3px solid var(--pulse-pink);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.progress-bar-container:hover .progress-thumb,
+.progress-bar-container.is-dragging .progress-thumb {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* 浮层移出 300ms 淡出动效 */
+.popup-fade-enter-active {
+  transition: opacity 0.2s cubic-bezier(0.25, 0.8, 0.25, 1), transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.popup-fade-leave-active {
+  transition: opacity 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.popup-fade-enter-from,
+.popup-fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}

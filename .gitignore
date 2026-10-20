@@ -1,0 +1,40 @@
+# 构建产物与依赖
+node_modules/
+dist/
+dist-ssr/
+*.local
+src-tauri/target/
+target/
+
+# mpv 动态库二进制（体积过大不纳入版本控制，通过 scripts/setup_env.ps1 自动下载）
+libs/mpv/*.dll
+libs/mpv/*.7z
+src-tauri/lib/*.dll
+
+# 日志
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 编辑器与系统生成文件
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+[Ee]xpress/
+.DS_Store
+
+# 临时测试目录
+scratch/
+test.exe
+test.pdb
+test_mpv.exe
+test_mpv.pdb
