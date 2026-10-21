@@ -106,99 +106,92 @@ fn reg_value_exists(root: HKEY, subkey: &str, val_name: &str) -> bool {
     }
 }
 
-/// 从注册表查询当前扩展名在 UserChoice 下设置的 ProgId
-/// 从注册表查询当前扩展名在 UserChoice 或 Classes 下设置的 ProgId
+/// 从注册表读取 REG_SZ 或 REG_EXPAND_SZ 字符串值（若 val_name 为空字符串则读取默认值）
+fn reg_get_string(root: HKEY, subkey: &str, val_name: &str) -> Option<String> {
+    let subkey_w = to_wide_null(subkey);
+    let val_name_w = to_wide_null(val_name);
+    unsafe {
+        let mut hkey: HKEY = std::mem::zeroed();
+        let status = RegOpenKeyExW(root, subkey_w.as_ptr(), 0, KEY_READ, &mut hkey);
+        if status != ERROR_SUCCESS {
+            return None;
+        }
+        let mut buf = [0u16; 512];
+        let mut buf_size: u32 = (buf.len() * std::mem::size_of::<u16>()) as u32;
+        let mut reg_type: u32 = 0;
+
+        let query_status = RegQueryValueExW(
+            hkey,
+            if val_name.is_empty() {
+                std::ptr::null()
+            } else {
+                val_name_w.as_ptr()
+            },
+            std::ptr::null_mut(),
+            &mut reg_type,
+            buf.as_mut_ptr() as *mut _,
+            &mut buf_size,
+        );
+        RegCloseKey(hkey);
+
+        if query_status == ERROR_SUCCESS && (reg_type == REG_SZ || reg_type == 2 /* REG_EXPAND_SZ */) {
+            let len = (buf_size as usize) / std::mem::size_of::<u16>();
+            let slice = if len > 0 && buf[len - 1] == 0 {
+                &buf[..len - 1]
+            } else {
+                &buf[..len]
+            };
+            let val = String::from_utf16_lossy(slice).trim().to_string();
+            if !val.is_empty() {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
+/// 从注册表查询当前扩展名在 UserChoice、HKCU Classes 或 HKCR 下设置的 ProgId
 fn query_default_prog_id(ext: &str) -> Option<String> {
     // 1. 优先读取 Windows 10/11 Explorer UserChoice
-    let subkey = format!(
+    let user_choice_key = format!(
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.{}\UserChoice",
         ext
     );
-    let subkey_w = to_wide_null(&subkey);
-    let val_name_w = to_wide_null("ProgId");
-
-    unsafe {
-        let mut hkey: HKEY = std::mem::zeroed();
-        let status = RegOpenKeyExW(
-            HKEY_CURRENT_USER,
-            subkey_w.as_ptr(),
-            0,
-            KEY_READ,
-            &mut hkey,
-        );
-        if status == ERROR_SUCCESS {
-            let mut buf = [0u16; 512];
-            let mut buf_size: u32 = (buf.len() * std::mem::size_of::<u16>()) as u32;
-            let mut reg_type: u32 = 0;
-
-            let query_status = RegQueryValueExW(
-                hkey,
-                val_name_w.as_ptr(),
-                std::ptr::null_mut(),
-                &mut reg_type,
-                buf.as_mut_ptr() as *mut _,
-                &mut buf_size,
-            );
-            RegCloseKey(hkey);
-
-            if query_status == ERROR_SUCCESS && reg_type == REG_SZ {
-                let len = (buf_size as usize) / std::mem::size_of::<u16>();
-                let slice = if len > 0 && buf[len - 1] == 0 {
-                    &buf[..len - 1]
-                } else {
-                    &buf[..len]
-                };
-                let id = String::from_utf16_lossy(slice).trim().to_string();
-                if !id.is_empty() {
-                    return Some(id);
-                }
-            }
-        }
+    if let Some(id) = reg_get_string(HKEY_CURRENT_USER, &user_choice_key, "ProgId") {
+        return Some(id);
     }
 
     // 2. 若未显式设置 UserChoice，回退查询 HKCU\Software\Classes\.{ext} (Default)
     let classes_subkey = format!(r"Software\Classes\.{}", ext);
-    let classes_subkey_w = to_wide_null(&classes_subkey);
-    unsafe {
-        let mut hkey: HKEY = std::mem::zeroed();
-        let status = RegOpenKeyExW(
-            HKEY_CURRENT_USER,
-            classes_subkey_w.as_ptr(),
-            0,
-            KEY_READ,
-            &mut hkey,
-        );
-        if status == ERROR_SUCCESS {
-            let mut buf = [0u16; 512];
-            let mut buf_size: u32 = (buf.len() * std::mem::size_of::<u16>()) as u32;
-            let mut reg_type: u32 = 0;
+    if let Some(id) = reg_get_string(HKEY_CURRENT_USER, &classes_subkey, "") {
+        return Some(id);
+    }
 
-            let query_status = RegQueryValueExW(
-                hkey,
-                std::ptr::null(), // default value
-                std::ptr::null_mut(),
-                &mut reg_type,
-                buf.as_mut_ptr() as *mut _,
-                &mut buf_size,
-            );
-            RegCloseKey(hkey);
-
-            if query_status == ERROR_SUCCESS && reg_type == REG_SZ {
-                let len = (buf_size as usize) / std::mem::size_of::<u16>();
-                let slice = if len > 0 && buf[len - 1] == 0 {
-                    &buf[..len - 1]
-                } else {
-                    &buf[..len]
-                };
-                let id = String::from_utf16_lossy(slice).trim().to_string();
-                if !id.is_empty() {
-                    return Some(id);
-                }
-            }
-        }
+    // 3. 若 HKCU 也未设置，回退查询 HKEY_CLASSES_ROOT\.{ext} (Default)
+    let hkcr_subkey = format!(r".{}", ext);
+    if let Some(id) = reg_get_string(HKEY_CLASSES_ROOT, &hkcr_subkey, "") {
+        return Some(id);
     }
 
     None
+}
+
+/// 从命令行动作字符串 (如 '"C:\path\app.exe" "%1"') 提取可执行程序主名称
+fn extract_exe_name_from_command(cmd: &str) -> Option<String> {
+    let trimmed = cmd.trim();
+    let exe_path = if trimmed.starts_with('"') {
+        let end = trimmed[1..].find('"')?;
+        &trimmed[1..1 + end]
+    } else {
+        trimmed.split_whitespace().next()?
+    };
+    let path = std::path::Path::new(exe_path);
+    let stem = path.file_stem()?.to_str()?;
+    if stem.is_empty() {
+        None
+    } else {
+        Some(stem.to_string())
+    }
 }
 
 /// 将 ProgId 转换为人类可读的友好应用名称
@@ -208,6 +201,7 @@ fn format_friendly_app_name(prog_id: &str) -> (bool, String) {
         return (true, "Pulse Player".to_string());
     }
 
+    // 1. 常见第三方与系统播放器特征关键词映射
     if lower.contains("musicplayer2") {
         return (false, "MusicPlayer2".to_string());
     }
@@ -217,17 +211,26 @@ fn format_friendly_app_name(prog_id: &str) -> (bool, String) {
     if lower.contains("vlc") {
         return (false, "VLC Media Player".to_string());
     }
-    if lower.contains("microsoft.zunevideo") || lower.contains("appx") && lower.contains("video") {
-        return (false, "电影和电视 (Windows)".to_string());
-    }
-    if lower.contains("microsoft.zunemusic") || lower.contains("appx") && lower.contains("music") {
-        return (false, "Windows Media Player".to_string());
-    }
-    if lower.contains("wmp11") || lower.contains("wmplayer") {
-        return (false, "Windows Media Player (旧版)".to_string());
+    if lower.contains("foobar2000") {
+        return (false, "foobar2000".to_string());
     }
     if lower.contains("quark") {
         return (false, "夸克播放器".to_string());
+    }
+    if lower.contains("bilipc") || lower.contains("bilibili") {
+        return (false, "哔哩哔哩".to_string());
+    }
+    if lower.contains("cloudmusic") || lower.contains("netease") {
+        return (false, "网易云音乐".to_string());
+    }
+    if lower.contains("qqmusic") {
+        return (false, "QQ音乐".to_string());
+    }
+    if lower.contains("kugou") {
+        return (false, "酷狗音乐".to_string());
+    }
+    if lower.contains("kuwo") {
+        return (false, "酷我音乐".to_string());
     }
     if lower.contains("chrome") {
         return (false, "Google Chrome".to_string());
@@ -235,12 +238,65 @@ fn format_friendly_app_name(prog_id: &str) -> (bool, String) {
     if lower.contains("msedge") || lower.contains("edge") {
         return (false, "Microsoft Edge".to_string());
     }
+    if lower.contains("microsoft.zunevideo") || (lower.contains("appx") && lower.contains("video")) {
+        return (false, "电影和电视 (Windows)".to_string());
+    }
+    if lower.contains("microsoft.zunemusic") || (lower.contains("appx") && lower.contains("music")) {
+        return (false, "Windows 媒体播放器".to_string());
+    }
+    if lower.contains("wmp11") || lower.contains("wmplayer") {
+        return (false, "Windows Media Player (旧版)".to_string());
+    }
 
-    // 默认清理 Applications\ 前缀
+    // 2. 针对 Windows 10/11 的 AppX 动态散列 ProgId (如 AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs)
+    if lower.starts_with("appx") {
+        let app_key = format!(r"{}\Application", prog_id);
+        if let Some(aumid) = reg_get_string(HKEY_CLASSES_ROOT, &app_key, "AppUserModelID") {
+            let aumid_lower = aumid.to_lowercase();
+            if aumid_lower.contains("zunemusic") {
+                return (false, "Windows 媒体播放器".to_string());
+            }
+            if aumid_lower.contains("zunevideo") {
+                return (false, "电影和电视 (Windows)".to_string());
+            }
+            if aumid_lower.contains("photos") {
+                return (false, "Windows 照片".to_string());
+            }
+            if let Some(app_name) = aumid.split('!').last() {
+                if !app_name.is_empty() {
+                    return (false, app_name.to_string());
+                }
+            }
+        }
+    }
+
+    // 3. 尝试从 shell\open\command 提取可执行程序名称 (针对 bilipc 或其它第三方自定义 ProgId)
+    let cmd_key = format!(r"{}\shell\open\command", prog_id);
+    if let Some(cmd) = reg_get_string(HKEY_CLASSES_ROOT, &cmd_key, "") {
+        if let Some(exe_name) = extract_exe_name_from_command(&cmd) {
+            let exe_lower = exe_name.to_lowercase();
+            if exe_lower.contains("pulse-player") || exe_lower.contains("pulseplayer") {
+                return (true, "Pulse Player".to_string());
+            }
+            if exe_lower.contains("bilibili") || exe_name == "哔哩哔哩" {
+                return (false, "哔哩哔哩".to_string());
+            }
+            return (false, exe_name);
+        }
+    }
+
+    // 4. 尝试读取 ProgId 自身的 FriendlyTypeName 或默认描述
+    if let Some(friendly) = reg_get_string(HKEY_CLASSES_ROOT, prog_id, "FriendlyTypeName") {
+        if !friendly.starts_with('@') && !friendly.is_empty() {
+            return (false, friendly);
+        }
+    }
+
+    // 5. 默认清理 Applications\ 前缀与 .exe 后缀
     let clean = if let Some(stripped) = prog_id.strip_prefix(r"Applications\") {
-        stripped
+        stripped.strip_suffix(".exe").unwrap_or(stripped)
     } else {
-        prog_id
+        prog_id.strip_suffix(".exe").unwrap_or(prog_id)
     };
     (false, clean.to_string())
 }
@@ -498,6 +554,9 @@ pub fn get_all_associations() -> Vec<FileAssociationItem> {
 
 /// 打开 Windows 原生默认应用设置面板 (直接定位至 Pulse Player 能力配置页)
 pub fn open_default_apps_settings() -> Result<(), String> {
+    // 确保 Pulse Player 应用程序能力模型及 ProgID 注册就绪，以便 Windows 设置可正确识别并展现
+    let _ = register_base_capabilities();
+
     let direct_url_w = to_wide_null("ms-settings:defaultapps?registeredAppUser=PulsePlayer");
     let op_w = to_wide_null("open");
 
@@ -541,6 +600,15 @@ pub fn prompt_associate_extension(ext: &str) -> Result<(), String> {
     let sample_file = temp_dir.join(format!("associate_sample.{}", clean_ext));
     if sample_file.exists() {
         let _ = std::fs::remove_file(&sample_file);
+    }
+    if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.to_lowercase().starts_with("associate_sample") {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
     }
 
     // 2. 确保 Pulse Player 应用程序能力模型及该扩展名的 ProgID 与 OpenWith 注册表就绪
@@ -703,6 +771,49 @@ mod tests {
             r"Software\Classes\.wav\OpenWithProgids",
             "PulsePlayer.AssocFile.wav"
         ));
+    }
+
+    #[test]
+    fn test_format_friendly_app_name_and_command_parsing() {
+        // 1. 测试指令中可执行程序名称提取
+        assert_eq!(
+            extract_exe_name_from_command(r#""D:\bilibili\哔哩哔哩.exe" "%1""#),
+            Some("哔哩哔哩".to_string())
+        );
+        assert_eq!(
+            extract_exe_name_from_command(r#""C:\Program Files\DAUM\PotPlayer\PotPlayer64.exe" /prefetch:1 "%1""#),
+            Some("PotPlayer64".to_string())
+        );
+        assert_eq!(
+            extract_exe_name_from_command(r#"C:\Tools\mpv.exe %1"#),
+            Some("mpv".to_string())
+        );
+
+        // 2. 测试友好程序名称转换
+        assert_eq!(
+            format_friendly_app_name("Applications\\pulse-player.exe"),
+            (true, "Pulse Player".to_string())
+        );
+        assert_eq!(
+            format_friendly_app_name("PulsePlayer.AssocFile.mp4"),
+            (true, "Pulse Player".to_string())
+        );
+        assert_eq!(
+            format_friendly_app_name("Applications\\MusicPlayer2.exe"),
+            (false, "MusicPlayer2".to_string())
+        );
+        assert_eq!(
+            format_friendly_app_name("QuarkHTM.mkv"),
+            (false, "夸克播放器".to_string())
+        );
+        assert_eq!(
+            format_friendly_app_name("bilipc"),
+            (false, "哔哩哔哩".to_string())
+        );
+        assert_eq!(
+            format_friendly_app_name("WMP11.AssocFile.MP4"),
+            (false, "Windows Media Player (旧版)".to_string())
+        );
     }
 }
 

@@ -610,20 +610,30 @@ const handleSwitchToAssociation = () => {
 const handleOpenSystemSettings = async () => {
   try {
     await invoke('open_default_apps_settings')
+    showToast('已唤起系统设置，请在列表中将 Pulse Player 设为默认应用')
+    const refreshLater = () => fetchAssociations(true)
+    setTimeout(refreshLater, 1500)
+    setTimeout(refreshLater, 3500)
+    window.addEventListener('focus', refreshLater, { once: true })
   } catch (err) {
     console.error('打开系统设置失败:', err)
+    showToast('✕ 打开系统设置失败: ' + String(err))
   }
 }
 
+const isPromptingAssoc = ref(false)
+
 const handlePromptAssociate = async (ext: string, event?: Event) => {
   if (event) event.stopPropagation()
+  if (isPromptingAssoc.value) return
+  isPromptingAssoc.value = true
   try {
     if (!selectedExts.value.has(ext)) {
       selectedExts.value.add(ext)
       localStorage.setItem('pulse_player_assoc_configured', 'true')
     }
     await invoke('prompt_associate_extension', { ext })
-    showToast(`已唤起系统设置，请在列表中将 Pulse Player 设为默认应用`)
+    showToast(`已唤起系统设置，请将 .${ext.toUpperCase()} 或全部格式设为 Pulse Player 默认`)
     // 用户在 Windows 设置中完成选择后，监听窗口聚焦与延时自动刷新，即时呈现生效结果
     const refreshLater = () => fetchAssociations(true)
     setTimeout(refreshLater, 1500)
@@ -632,6 +642,10 @@ const handlePromptAssociate = async (ext: string, event?: Event) => {
   } catch (err) {
     console.error('唤起系统设置失败:', err)
     showToast('✕ 唤起系统设置失败: ' + String(err))
+  } finally {
+    setTimeout(() => {
+      isPromptingAssoc.value = false
+    }, 1000)
   }
 }
 
@@ -798,12 +812,20 @@ watch(
   }
 )
 
+const handleWindowFocus = () => {
+  if (props.visible && currentTab.value === 'association') {
+    fetchAssociations(true)
+  }
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown)
+  window.addEventListener('focus', handleWindowFocus)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('focus', handleWindowFocus)
   if (pendingUpdate.value && downloadState.value !== 'downloading') {
     pendingUpdate.value.close().catch(() => {})
   }
@@ -1212,7 +1234,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  max-width: 86px;
+  max-width: 96px;
   transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none;
 }
@@ -1222,7 +1244,7 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline-block;
-  max-width: 58px;
+  max-width: 68px;
 }
 
 .ext-action-btn .action-btn-hover-text {
