@@ -58,5 +58,14 @@ if ($appProc.HasExited) {
 Stop-Process -Id $appProc.Id -Force
 [void]$appProc.WaitForExit(3000)
 Start-Sleep -Milliseconds 500
-Remove-Item -Recurse -Force $tempDir
+
+# 4. 执行规范静默卸载并清理测试残留注册表，彻底杜绝污染真实用户环境
+$uninstaller = Join-Path $tempDir "uninstall.exe"
+if (Test-Path $uninstaller) {
+    $uninstProc = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru -ErrorAction SilentlyContinue
+}
+Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Pulse Player" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Bi-Player" -Recurse -Force -ErrorAction SilentlyContinue
+
 Write-Host "[PASS] 安装包程序启动正常，无 DLL 缺失弹窗或崩溃！[OK]" -ForegroundColor Green
