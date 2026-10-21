@@ -63,4 +63,7 @@ pnpm tauri build
    严格遵循 Windows 10/11 的 UserChoice 安全防护机制，后端通过 Win32 注册表 API 毫秒级读取各后缀的 ProgId 并解析出友好软件名；彻底废弃容易导致“仅一次”弹窗与误播放空文件的 legacy `OpenAs_RunDLL` 占位调用，改为通过 `ms-settings:defaultapps?registeredAppUser=PulsePlayer` 原生深度跳转定位到 Pulse Player 专属管理页引导合规设置，并在单实例 IPC 及启动阶段对 0 字节无效文件与探测占位文件实施严格过滤。
 7. **Tauri 2 原生内置静默更新 (Tauri Updater) 闭环与原地覆盖机制**：
    杜绝跳转外部网页手动下载的割裂体验。前端通过 `@tauri-apps/plugin-updater` 异步检测 `latest.json` 官方清单并内置全量下载进度条（百分比、已下载大小 / 总大小）；下载完成自动校验 Minisign (Ed25519) 防篡改数字签名；Windows 下配置 `installMode = "passive"`，安装触发时主进程调用 `install({ restartAfterInstall: true })` 原地优雅退出释放文件锁，由 NSIS 在当前程序运行目录精准执行原地覆盖静默安装并自拉起，彻底杜绝多份路径残留与文件锁占用冲突。
+8. **Windows 系统代理自动继承与更新清单无 BOM 规范**：
+   Windows 代理客户端（Clash、v2rayN 等）开启系统代理时通常仅修改注册表 WinINet 键值，不自动注入环境变量 `HTTP_PROXY`，导致基于 `reqwest` 的 Rust 原生网络请求直连 GitHub 遭遇网络阻断。Pulse Player 在主进程启动首阶段通过 Win32 API 自动透视系统代理注册表并注入进程内存环境变量，使网络请求天然支持代理穿透；同时发布流水线严格采用无 BOM UTF-8 (`UTF8Encoding(false)`) 输出清单与 URL 转义，杜绝 `serde_json` 遇到 `\u{feff}` 导致反序列化崩溃。
+
 

@@ -52,29 +52,36 @@ if ($Signature) {
     }
 }
 
-# 3. 构造下载 URL
+# 3. 构造下载 URL (对文件名中的空格实施 RFC 3986 转义)
 $artifactName = if ($ArtifactPath) { [System.IO.Path]::GetFileName($ArtifactPath) } else { "Pulse-Player_${Version}_x64-setup.nsis.zip" }
-$downloadUrl = "$BaseUrl/v$Version/$artifactName"
+$encodedArtifactName = [System.Uri]::EscapeDataString($artifactName)
+$downloadUrl = "$BaseUrl/v$Version/$encodedArtifactName"
 
 # 4. 生成符合 Tauri 2 规范的 RFC3339 日期
 $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-# 5. 组合 JSON 数据结构
+# 5. 组合 JSON 数据结构（同时提供 windows-x86_64 与 windows-x86_64-nsis 以保最佳匹配兼容性）
+$platformInfo = [ordered]@{
+    signature = $finalSignature
+    url       = $downloadUrl
+}
+
 $manifest = [ordered]@{
     version   = $Version
     notes     = $Notes
     pub_date  = $pubDate
     platforms = [ordered]@{
-        "windows-x86_64" = [ordered]@{
-            signature = $finalSignature
-            url       = $downloadUrl
-        }
+        "windows-x86_64"      = $platformInfo
+        "windows-x86_64-nsis" = $platformInfo
     }
 }
 
 $jsonContent = $manifest | ConvertTo-Json -Depth 5
 $outPath = if ([System.IO.Path]::IsPathRooted($OutputFile)) { $OutputFile } else { Join-Path (Get-Location) $OutputFile }
-[System.IO.File]::WriteAllText($outPath, $jsonContent, [System.Text.Encoding]::UTF8)
+
+# 确保以无 BOM 的纯 UTF-8 编码写入 (杜绝 0xEF 0xBB 0xBF 导致 serde_json 解析报错)
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText($outPath, $jsonContent, $utf8NoBom)
 
 Write-Host "[PASS] 成功生成规范更新清单: $outPath (版本: v$Version)" -ForegroundColor Green
 Write-Host "清单内容预览:" -ForegroundColor DarkGray

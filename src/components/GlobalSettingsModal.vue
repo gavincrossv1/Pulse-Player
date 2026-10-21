@@ -712,7 +712,7 @@ const handleCheckUpdate = async () => {
     if (errText.includes('Could not fetch a valid release') || errText.includes('404')) {
       updateStatusText.value = `当前已是最新版本 (${currentAppVersion})，官方暂无新版本发布`
     } else {
-      updateStatusText.value = '检查更新失败，请检查网络连接后重试'
+      updateStatusText.value = `检查更新失败: ${errText}`
     }
   } finally {
     isCheckingUpdate.value = false

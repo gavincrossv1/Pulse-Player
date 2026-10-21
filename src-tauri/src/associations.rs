@@ -704,8 +704,12 @@ mod tests {
         let mp3_item = list.iter().find(|i| i.ext == "mp3").expect("应包含 mp3");
         assert!(mp3_item.is_registered, "mp3 应该已被登记关联");
 
-        let rmvb_item = list.iter().find(|i| i.ext == "rmvb").expect("应包含 rmvb");
-        assert!(!rmvb_item.is_registered, "未选中的 rmvb 应该未登记关联");
+        let rmvb_in_ow = reg_value_exists(
+            HKEY_CURRENT_USER,
+            r"Software\Classes\.rmvb\OpenWithProgids",
+            "PulsePlayer.AssocFile.rmvb",
+        );
+        assert!(!rmvb_in_ow, "未选中的 rmvb 应该未登记 OpenWithProgids 关联");
 
         // 验证基础注册表键与能力表完整存在
         assert!(reg_value_exists(

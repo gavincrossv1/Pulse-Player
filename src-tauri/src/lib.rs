@@ -6,6 +6,7 @@ pub mod commands;
 pub mod history;
 pub mod mpv_player;
 pub mod playlist;
+pub mod proxy;
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -45,6 +46,9 @@ pub(crate) fn is_valid_media_file(p: &std::path::Path) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 0. 自动继承 Windows 系统代理（确保开梯子环境无缝请求 GitHub Updater 等网络资源）
+    proxy::auto_inherit_system_proxy();
+
     // 1. 检测启动入参（双击视频文件关联启动或命令行入参，过滤占位空文件）
     let mut initial_file: Option<String> = None;
     let args: Vec<String> = std::env::args().collect();
