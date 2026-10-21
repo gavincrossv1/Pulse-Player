@@ -181,17 +181,15 @@ impl MpvPlayer {
                                 }
                             }
                         }
-                    } else if ev.event_id == MPV_EVENT_END_FILE {
-                        if !ev.data.is_null() {
-                            let end_file = &*(ev.data as *mut mpv_event_end_file);
-                            // 仅当文件真正自然播放至末尾 (EOF) 时派发 ended 事件
-                            // 严禁在切换文件 (STOP) 或错误退出时派发，杜绝启动切集误触发
-                            if end_file.reason == MPV_END_FILE_REASON_EOF {
-                                let mut guard = eof_reached_clone.lock().unwrap();
-                                if !*guard {
-                                    *guard = true;
-                                    let _ = app_handle.emit("player:ended", ());
-                                }
+                    } else if ev.event_id == MPV_EVENT_END_FILE && !ev.data.is_null() {
+                        let end_file = &*(ev.data as *mut mpv_event_end_file);
+                        // 仅当文件真正自然播放至末尾 (EOF) 时派发 ended 事件
+                        // 严禁在切换文件 (STOP) 或错误退出时派发，杜绝启动切集误触发
+                        if end_file.reason == MPV_END_FILE_REASON_EOF {
+                            let mut guard = eof_reached_clone.lock().unwrap();
+                            if !*guard {
+                                *guard = true;
+                                let _ = app_handle.emit("player:ended", ());
                             }
                         }
                     }
@@ -446,7 +444,7 @@ impl MpvPlayer {
         }
         unsafe {
             let prop = CString::new("video-margin-ratio-top").unwrap();
-            let safe_ratio = ratio.max(0.0).min(0.5);
+            let safe_ratio = ratio.clamp(0.0, 0.5);
             let val = CString::new(format!("{:.6}", safe_ratio)).unwrap();
             let ret = mpv_set_property_string(self.raw, prop.as_ptr(), val.as_ptr());
             if ret < 0 {

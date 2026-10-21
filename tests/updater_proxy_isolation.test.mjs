@@ -2,6 +2,7 @@
 // 针对 Tauri Updater 原生 FFI 资源对象与 Vue 3 Proxy 隔离特性的单元测试
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { ref } from 'vue'
 
 // 模拟 Tauri Resource / Update 类的私有字段与 rid 契约
 class MockResource {
@@ -56,6 +57,22 @@ test('原生 ES 私有成员在进入 Proxy 后调用必定抛出 TypeError', as
   await assert.rejects(
     async () => {
       await proxyUpdate.download()
+    },
+    {
+      name: 'TypeError',
+      message: /Cannot read private member/
+    }
+  )
+})
+
+test('Vue 3 ref 包裹含原生私有字段的 SDK 实例必定复现 TypeError 崩溃', async () => {
+  const update = new MockUpdate(102, { version: '0.3.1' })
+  // 验证在 Vue 3 真实 ref 响应式 Proxy 下的崩溃行为
+  const updateRef = ref(update)
+
+  await assert.rejects(
+    async () => {
+      await updateRef.value.download()
     },
     {
       name: 'TypeError',

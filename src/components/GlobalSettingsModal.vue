@@ -345,7 +345,7 @@
               <div class="update-actions">
                 <button
                   class="pill-btn check-update-btn"
-                  :disabled="isCheckingUpdate"
+                  :disabled="isCheckingUpdate || downloadState === 'downloading'"
                   @click="handleCheckUpdate"
                 >
                   <SvgIcon v-if="isCheckingUpdate" name="refresh" size="12" class="spin-icon" />
@@ -625,9 +625,14 @@ const handleSwitchToAssociation = () => {
   fetchAssociations()
 }
 
+let syncTimer1: ReturnType<typeof setTimeout> | null = null
+let syncTimer2: ReturnType<typeof setTimeout> | null = null
+
 const scheduleAssociationSync = () => {
-  setTimeout(() => fetchAssociations(true), 1500)
-  setTimeout(() => fetchAssociations(true), 3500)
+  if (syncTimer1) clearTimeout(syncTimer1)
+  if (syncTimer2) clearTimeout(syncTimer2)
+  syncTimer1 = setTimeout(() => fetchAssociations(true), 1500)
+  syncTimer2 = setTimeout(() => fetchAssociations(true), 3500)
 }
 
 const handleOpenSystemSettings = async () => {
@@ -728,6 +733,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('focus', handleWindowFocus)
   if (toastTimer) clearTimeout(toastTimer)
+  if (syncTimer1) clearTimeout(syncTimer1)
+  if (syncTimer2) clearTimeout(syncTimer2)
   cleanupUpdater()
 })
 </script>

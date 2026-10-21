@@ -3,6 +3,7 @@
 import { ref } from 'vue'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
+import pkg from '../../package.json'
 
 export interface UpdateInfo {
   version: string
@@ -14,7 +15,7 @@ export interface UpdateInfo {
 export type DownloadState = 'idle' | 'downloading' | 'ready' | 'error'
 
 export function useUpdater() {
-  const currentAppVersion = 'v0.3.1'
+  const currentAppVersion = `v${pkg.version}`
   const isCheckingUpdate = ref(false)
   const updateStatusText = ref('点击右侧按钮连接官方服务器检查更新')
   const updateInfo = ref<UpdateInfo | null>(null)
@@ -64,7 +65,7 @@ export function useUpdater() {
 
   // 检查更新
   const handleCheckUpdate = async () => {
-    if (isCheckingUpdate.value) return
+    if (isCheckingUpdate.value || downloadState.value === 'downloading') return
     isCheckingUpdate.value = true
     updateStatusText.value = '正在连接官方更新服务器检测最新版本...'
 
@@ -105,7 +106,7 @@ export function useUpdater() {
 
   // 开始下载更新并校验数字签名
   const handleStartDownload = async () => {
-    if (!activeUpdate || downloadState.value === 'downloading') return
+    if (!activeUpdate || downloadState.value === 'downloading' || downloadState.value === 'ready') return
     downloadState.value = 'downloading'
     downloadedBytes.value = 0
     totalBytes.value = 0
@@ -162,6 +163,7 @@ export function useUpdater() {
     await cleanupActiveUpdate()
     updateInfo.value = null
     downloadState.value = 'idle'
+    updateStatusText.value = '已忽略本次更新，可随时重新检查更新'
   }
 
   // 组件卸载时释放

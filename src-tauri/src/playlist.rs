@@ -95,7 +95,7 @@ pub fn scan_folder_videos(current_file_path: &str) -> Vec<PlaylistItem> {
     }
 
     // 执行自然排序（例如：1, 2, 10 而非 1, 10, 2）
-    items.sort_by(|a, b| natural_sort_key(&a.name).cmp(&natural_sort_key(&b.name)));
+    items.sort_by_cached_key(|a| natural_sort_key(&a.name));
 
     items
 }
@@ -112,7 +112,7 @@ mod tests {
             "第1集 序幕.mp4".to_string(),
             "第20集 外传.mp4".to_string(),
         ];
-        files.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+        files.sort_by_cached_key(|a| natural_sort_key(a));
 
         assert_eq!(
             files,
@@ -133,7 +133,7 @@ mod tests {
             "1.mp4".to_string(),
             "test_sample.mp4".to_string(),
         ];
-        files.sort_by(|a, b| natural_sort_key(a).cmp(&natural_sort_key(b)));
+        files.sort_by_cached_key(|a| natural_sort_key(a));
 
         assert_eq!(
             files,

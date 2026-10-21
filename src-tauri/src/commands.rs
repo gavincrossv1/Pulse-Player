@@ -40,10 +40,10 @@ pub fn normalize_path(path: &str) -> String {
     let unified = trimmed.replace('/', "\\");
     if let Ok(abs) = std::fs::canonicalize(&unified) {
         let s = abs.to_string_lossy().to_string();
-        if s.starts_with(r"\\?\UNC\") {
-            format!(r"\\{}", &s[8..])
-        } else if s.starts_with(r"\\?\") {
-            s[4..].to_string()
+        if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{}", stripped)
+        } else if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            stripped.to_string()
         } else {
             s
         }

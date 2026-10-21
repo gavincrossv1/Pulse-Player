@@ -179,9 +179,9 @@ fn query_default_prog_id(ext: &str) -> Option<String> {
 /// 从命令行动作字符串 (如 '"C:\path\app.exe" "%1"') 提取可执行程序主名称
 fn extract_exe_name_from_command(cmd: &str) -> Option<String> {
     let trimmed = cmd.trim();
-    let exe_path = if trimmed.starts_with('"') {
-        let end = trimmed[1..].find('"')?;
-        &trimmed[1..1 + end]
+    let exe_path = if let Some(stripped) = trimmed.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        &stripped[..end]
     } else {
         trimmed.split_whitespace().next()?
     };
@@ -262,7 +262,7 @@ fn format_friendly_app_name(prog_id: &str) -> (bool, String) {
             if aumid_lower.contains("photos") {
                 return (false, "Windows 照片".to_string());
             }
-            if let Some(app_name) = aumid.split('!').last() {
+            if let Some(app_name) = aumid.split('!').next_back() {
                 if !app_name.is_empty() {
                     return (false, app_name.to_string());
                 }
