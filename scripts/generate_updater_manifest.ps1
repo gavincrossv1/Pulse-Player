@@ -52,9 +52,10 @@ if ($Signature) {
     }
 }
 
-# 3. 构造下载 URL (对文件名中的空格实施 RFC 3986 转义)
+# 3. 构造下载 URL (GitHub Releases 上传带空格文件时会自动将空格替换为 '.')
 $artifactName = if ($ArtifactPath) { [System.IO.Path]::GetFileName($ArtifactPath) } else { "Pulse-Player_${Version}_x64-setup.nsis.zip" }
-$encodedArtifactName = [System.Uri]::EscapeDataString($artifactName)
+$githubAssetName = $artifactName -replace ' ', '.'
+$encodedArtifactName = [System.Uri]::EscapeDataString($githubAssetName)
 $downloadUrl = "$BaseUrl/v$Version/$encodedArtifactName"
 
 # 4. 生成符合 Tauri 2 规范的 RFC3339 日期
