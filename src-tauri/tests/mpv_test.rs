@@ -813,6 +813,50 @@ fn test_history_near_eof_timestamp_handling() {
 }
 
 #[test]
+fn test_history_schema_version_migration() {
+    let _lock = HISTORY_TEST_LOCK.lock().unwrap();
+    let sandbox = HistoryTestSandbox::new("schema_version");
+    use pulse_player_lib::history::{load_history, save_history_record, HistoryData, HistoryRecord};
+
+    // 1. 模拟写入旧版本无 version 字段的裸数组 JSON
+    let old_raw_json = r#"[
+        {
+            "name": "legacy_video.mp4",
+            "path": "C:\\videos\\legacy_video.mp4",
+            "timestamp": 120.5,
+            "duration": 600.0,
+            "last_played_at": 1000
+        }
+    ]"#;
+    let file_path = sandbox.dir.join("history.json");
+    std::fs::write(&file_path, old_raw_json).unwrap();
+
+    // 2. 调用 load_history() 读取，验证能成功解析旧格式并自愈升级
+    let records = load_history();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].name, "legacy_video.mp4");
+    assert_eq!(records[0].timestamp, 120.5);
+
+    // 3. 验证本地文件已被自动迁移为带 version: 1 的 HistoryData 格式
+    let new_content = std::fs::read_to_string(&file_path).unwrap();
+    let parsed: HistoryData = serde_json::from_str(&new_content).expect("应迁移为合法的 HistoryData 结构");
+    assert_eq!(parsed.version, 1);
+    assert_eq!(parsed.records.len(), 1);
+
+    // 4. 测试再次保存记录时，依旧保持带 version 结构
+    let new_r = HistoryRecord {
+        name: "new_video.mp4".into(),
+        path: "C:\\videos\\new_video.mp4".into(),
+        timestamp: 45.0,
+        duration: 300.0,
+        last_played_at: 2000,
+    };
+    save_history_record(new_r);
+    let reloaded = load_history();
+    assert_eq!(reloaded.len(), 2);
+}
+
+#[test]
 fn test_video_margin_ratio_top() {
     let raw = unsafe { mpv_create() };
     assert!(!raw.is_null());

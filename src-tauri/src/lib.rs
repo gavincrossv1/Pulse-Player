@@ -1,6 +1,7 @@
 // src-tauri/src/lib.rs
 // Pulse Player 桌面应用 Rust 主入口
 
+pub mod associations;
 pub mod commands;
 pub mod history;
 pub mod mpv_player;
@@ -136,6 +137,10 @@ pub fn run() {
             set_fullscreen,
             is_fullscreen,
             close_window,
+            get_file_associations,
+            open_default_apps_settings,
+            prompt_associate_extension,
+            open_external_url,
         ])
         .run(tauri::generate_context!())
         .expect("运行 Pulse Player 应用程序异常");

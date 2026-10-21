@@ -313,6 +313,35 @@
       <circle cx="18" cy="16" r="3" stroke="currentColor" stroke-width="1.8" />
     </g>
 
+    <!-- 刷新 -->
+    <g v-else-if="name === 'refresh'">
+      <path
+        d="M4 12C4 7.58172 7.58172 4 12 4C15.1585 4 17.8817 5.82869 19.1672 8.5M20 12C20 16.4183 16.4183 20 12 20C8.84153 20 6.11828 18.1713 4.83279 15.5"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+      />
+      <path d="M20 4V9H15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M4 20V15H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+
+    <!-- 勾选 / 成功 -->
+    <path
+      v-else-if="name === 'check'"
+      d="M5 13L9 17L19 7"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <!-- 外链 / 箭头 -->
+    <g v-else-if="name === 'external-link'">
+      <path d="M18 13V19C18 20.1046 17.1046 21 16 21H5C3.89543 21 3 20.1046 3 19V8C3 6.89543 3.89543 6 5 6H11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M15 3H21V9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M10 14L21 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+    </g>
+
     <!-- 默认兜底 -->
     <circle v-else cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5" />
   </svg>

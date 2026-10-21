@@ -15,9 +15,14 @@
   IfFileExists "$INSTDIR\resources\libs\mpv\libmpv-2.dll" 0 done_copy_mpv
     CopyFiles /SILENT "$INSTDIR\resources\libs\mpv\libmpv-2.dll" "$INSTDIR"
   done_copy_mpv:
+    ; 彻底清理打包解压的临时多级资源副本目录，释放冗余占用的 116MB 磁盘空间
+    RMDir /r "$INSTDIR\_up_"
+    RMDir /r "$INSTDIR\resources"
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
   Delete "$INSTDIR\libmpv-2.dll"
+  RMDir /r "$INSTDIR\_up_"
+  RMDir /r "$INSTDIR\resources"
 !macroend
 

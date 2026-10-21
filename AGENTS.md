@@ -57,3 +57,8 @@ pnpm tauri build
    在应用程序图标（.ico / 任务栏 / 快捷方式）、Windows 资源管理器关联文件图标、主页 Hero 品牌标、纯音频播放黑胶中心统一使用纯原创的 Pulse Mark 矢量与位图资产，彻底消除任何第三方版权与商标争议风险。
 4. **视频视口物理安全边距机制**：
    mpv 底层绑定整个 Windows 顶层窗口 HWND。在非全屏窗口模式下，mpv 默认从 `y=0` 绘制会导致顶部画面被前端独立常驻的 40px `TitleBar` 遮挡。通过动态设置 mpv 原生属性 `video-margin-ratio-top = 40.0 / window.innerHeight`，将视频物理渲染有效范围精准限制在顶栏下方（`y >= 40px`），保持宽高比且零裁切；在全屏模式下将边距重置为 `0.0` 实现 100% 沉浸全屏铺满。
+5. **用户数据 Schema Versioning 与平滑自愈演进**：
+   持久化存储在 `%APPDATA%\Pulse-Player\history.json` 中统一包裹 `HistoryData { version: 1, records }`。读取阶段向下兼容旧版裸数组，识别旧格式时自动自愈升级并持久化，保障后续数据结构演进的向下兼容。
+6. **Windows 原生文件关联透视与合规引导机制**：
+   严格遵循 Windows 10/11 的 UserChoice 安全防护机制，后端通过 Win32 注册表 API 毫秒级读取各后缀的 ProgId 并解析出友好软件名；前端提供“系统设置批量接管”与“单项原生 OpenAs 对话框引导”两套合规操作入口。
+

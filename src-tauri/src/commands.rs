@@ -3,6 +3,7 @@
 
 use std::sync::Mutex;
 use tauri::{AppHandle, State, Window};
+use crate::associations::{get_all_associations, open_default_apps_settings as do_open_default_apps, prompt_associate_extension as do_prompt_associate, FileAssociationItem};
 use crate::history::{clear_history, delete_history_record, load_history, save_history_record, HistoryRecord};
 use crate::mpv_player::MpvPlayer;
 use crate::playlist::{scan_folder_videos, PlaylistItem, SUPPORTED_EXTENSIONS};
@@ -276,4 +277,32 @@ pub fn is_fullscreen(window: Window) -> Result<bool, String> {
 #[tauri::command]
 pub fn close_window(window: Window) -> Result<(), String> {
     window.close().map_err(|e| e.to_string())
+}
+
+/// 获取全量媒体文件在当前系统的默认打开程序状态
+#[tauri::command]
+pub fn get_file_associations() -> Result<Vec<FileAssociationItem>, String> {
+    Ok(get_all_associations())
+}
+
+/// 唤起 Windows 系统默认应用设置面板
+#[tauri::command]
+pub fn open_default_apps_settings() -> Result<(), String> {
+    do_open_default_apps()
+}
+
+/// 针对单项特定文件后缀唤起 Windows 原生打开方式选择对话框
+#[tauri::command]
+pub fn prompt_associate_extension(ext: String) -> Result<(), String> {
+    do_prompt_associate(&ext)
+}
+
+/// 打开指定的外部链接 (如 GitHub Release 页面)
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    std::process::Command::new("cmd")
+        .args(["/c", "start", "", &url])
+        .spawn()
+        .map_err(|e| format!("打开链接失败: {}", e))?;
+    Ok(())
 }
