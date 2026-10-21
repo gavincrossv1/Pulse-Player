@@ -107,6 +107,6 @@ fn test_updater_manifest_schema_compliance() {
 fn test_version_consistency() {
     let conf_str = include_str!("../tauri.conf.json");
     let conf: Value = serde_json::from_str(conf_str).expect("tauri.conf.json 格式错误");
-    assert_eq!(conf["version"], "0.3.0", "tauri.conf.json 版本应为 0.3.0");
-    assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.0", "Cargo.toml 版本应为 0.3.0");
+    assert_eq!(conf["version"], "0.3.1", "tauri.conf.json 版本应为 0.3.1");
+    assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.1", "Cargo.toml 版本应为 0.3.1");
 }

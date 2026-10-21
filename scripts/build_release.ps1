@@ -20,7 +20,7 @@ if (-not $Version) {
 }
 
 if (-not $Notes) {
-    $Notes = "v$Version: 播放偏好新增一键恢复默认设置；精简文案风格回归纯粹简洁；Windows 系统代理自动继承与无缝更新支持。"
+    $Notes = "v${Version}: 播放偏好新增一键恢复默认设置；精简文案风格回归纯粹简洁；Windows 系统代理自动继承与无缝更新支持。"
 }
 
 Write-Host ">>> 准备构建 Release 生产环境安装包 (v$Version)..." -ForegroundColor Cyan
@@ -41,7 +41,7 @@ Write-Host "[PASS] Tauri Build 打包完成！" -ForegroundColor Green
 $bundleDir = "src-tauri\target\release\bundle\nsis"
 $zipFile = Get-ChildItem -Path $bundleDir -Filter "*$Version*.nsis.zip" | Select-Object -First 1
 if (-not $zipFile) {
-    $zipFile = Get-ChildItem -Path $bundleDir -Filter "*.exe" | Select-Object -First 1
+    $zipFile = Get-ChildItem -Path $bundleDir -Filter "*$Version*.exe" | Select-Object -First 1
 }
 
 if ($zipFile) {

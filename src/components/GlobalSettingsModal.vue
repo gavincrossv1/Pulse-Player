@@ -669,7 +669,7 @@ const handlePromptAssociate = async (ext: string, event?: Event) => {
 }
 
 // =================== 检查更新逻辑 (Tauri 2 原生静默更新) ===================
-const currentAppVersion = 'v0.3.0'
+const currentAppVersion = 'v0.3.1'
 const isCheckingUpdate = ref(false)
 const updateStatusText = ref('点击右侧按钮连接官方服务器检查更新')
 const pendingUpdate = ref<Update | null>(null)
