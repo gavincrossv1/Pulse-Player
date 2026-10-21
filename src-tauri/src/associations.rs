@@ -105,7 +105,9 @@ fn reg_value_exists(root: HKEY, subkey: &str, val_name: &str) -> bool {
 }
 
 /// 从注册表查询当前扩展名在 UserChoice 下设置的 ProgId
-fn query_user_choice_prog_id(ext: &str) -> Option<String> {
+/// 从注册表查询当前扩展名在 UserChoice 或 Classes 下设置的 ProgId
+fn query_default_prog_id(ext: &str) -> Option<String> {
+    // 1. 优先读取 Windows 10/11 Explorer UserChoice
     let subkey = format!(
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.{}\UserChoice",
         ext
@@ -122,35 +124,78 @@ fn query_user_choice_prog_id(ext: &str) -> Option<String> {
             KEY_READ,
             &mut hkey,
         );
-        if status != ERROR_SUCCESS {
-            return None;
-        }
+        if status == ERROR_SUCCESS {
+            let mut buf = [0u16; 512];
+            let mut buf_size: u32 = (buf.len() * std::mem::size_of::<u16>()) as u32;
+            let mut reg_type: u32 = 0;
 
-        let mut buf = [0u16; 512];
-        let mut buf_size: u32 = (buf.len() * std::mem::size_of::<u16>()) as u32;
-        let mut reg_type: u32 = 0;
+            let query_status = RegQueryValueExW(
+                hkey,
+                val_name_w.as_ptr(),
+                std::ptr::null_mut(),
+                &mut reg_type,
+                buf.as_mut_ptr() as *mut _,
+                &mut buf_size,
+            );
+            RegCloseKey(hkey);
 
-        let query_status = RegQueryValueExW(
-            hkey,
-            val_name_w.as_ptr(),
-            std::ptr::null_mut(),
-            &mut reg_type,
-            buf.as_mut_ptr() as *mut _,
-            &mut buf_size,
-        );
-        RegCloseKey(hkey);
-
-        if query_status == ERROR_SUCCESS && reg_type == REG_SZ {
-            let len = (buf_size as usize) / std::mem::size_of::<u16>();
-            // 过滤结尾的 \0
-            let slice = if len > 0 && buf[len - 1] == 0 {
-                &buf[..len - 1]
-            } else {
-                &buf[..len]
-            };
-            return Some(String::from_utf16_lossy(slice));
+            if query_status == ERROR_SUCCESS && reg_type == REG_SZ {
+                let len = (buf_size as usize) / std::mem::size_of::<u16>();
+                let slice = if len > 0 && buf[len - 1] == 0 {
+                    &buf[..len - 1]
+                } else {
+                    &buf[..len]
+                };
+                let id = String::from_utf16_lossy(slice).trim().to_string();
+                if !id.is_empty() {
+                    return Some(id);
+                }
+            }
         }
     }
+
+    // 2. 若未显式设置 UserChoice，回退查询 HKCU\Software\Classes\.{ext} (Default)
+    let classes_subkey = format!(r"Software\Classes\.{}", ext);
+    let classes_subkey_w = to_wide_null(&classes_subkey);
+    unsafe {
+        let mut hkey: HKEY = std::mem::zeroed();
+        let status = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            classes_subkey_w.as_ptr(),
+            0,
+            KEY_READ,
+            &mut hkey,
+        );
+        if status == ERROR_SUCCESS {
+            let mut buf = [0u16; 512];
+            let mut buf_size: u32 = (buf.len() * std::mem::size_of::<u16>()) as u32;
+            let mut reg_type: u32 = 0;
+
+            let query_status = RegQueryValueExW(
+                hkey,
+                std::ptr::null(), // default value
+                std::ptr::null_mut(),
+                &mut reg_type,
+                buf.as_mut_ptr() as *mut _,
+                &mut buf_size,
+            );
+            RegCloseKey(hkey);
+
+            if query_status == ERROR_SUCCESS && reg_type == REG_SZ {
+                let len = (buf_size as usize) / std::mem::size_of::<u16>();
+                let slice = if len > 0 && buf[len - 1] == 0 {
+                    &buf[..len - 1]
+                } else {
+                    &buf[..len]
+                };
+                let id = String::from_utf16_lossy(slice).trim().to_string();
+                if !id.is_empty() {
+                    return Some(id);
+                }
+            }
+        }
+    }
+
     None
 }
 
@@ -195,7 +240,7 @@ fn format_friendly_app_name(prog_id: &str) -> (bool, String) {
     (false, clean.to_string())
 }
 
-/// 注册 Windows 规范应用程序能力模型（Capabilities、RegisteredApplications 及 SupportedTypes）
+/// 注册 Windows 规范应用程序能力模型（Capabilities、RegisteredApplications、SupportedTypes 及 ProgIDs）
 pub fn register_base_capabilities() -> Result<(), String> {
     let exe_path = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
@@ -225,7 +270,7 @@ pub fn register_base_capabilities() -> Result<(), String> {
         unsafe { RegCloseKey(app_key); }
     }
 
-    // 2. 注册 HKCU\Software\Classes\Applications\pulse-player.exe (镜像映射至 HKCR\Applications\pulse-player.exe)
+    // 2. 注册 HKCU\Software\Classes\Applications\pulse-player.exe (自动映射至 HKCR\Applications\pulse-player.exe)
     if let Some(classes_app_key) = reg_create_key(HKEY_CURRENT_USER, r"Software\Classes\Applications\pulse-player.exe") {
         reg_set_string(classes_app_key, "FriendlyAppName", "Pulse Player");
         if let Some(icon_key) = reg_create_key(classes_app_key, "DefaultIcon") {
@@ -245,7 +290,7 @@ pub fn register_base_capabilities() -> Result<(), String> {
         unsafe { RegCloseKey(classes_app_key); }
     }
 
-    // 3. 尝试直接向 HKEY_CLASSES_ROOT\Applications\pulse-player.exe\SupportedTypes 写入 (若权限允许)
+    // 3. 尝试向 HKEY_CLASSES_ROOT\Applications\pulse-player.exe\SupportedTypes 写入 (若权限允许)
     if let Some(hkcr_supp_key) = reg_create_key(HKEY_CLASSES_ROOT, r"Applications\pulse-player.exe\SupportedTypes") {
         for &ext in &all_exts {
             reg_set_string(hkcr_supp_key, &format!(".{}", ext), "");
@@ -267,63 +312,60 @@ pub fn register_base_capabilities() -> Result<(), String> {
         unsafe { RegCloseKey(reg_apps_key); }
     }
 
+    // 6. 注册 Capabilities\FileAssociations 完整映射表（声明支持的所有 19 种主流音视频格式）
+    if let Some(cap_assoc_key) = reg_create_key(HKEY_CURRENT_USER, r"Software\PulsePlayer\Capabilities\FileAssociations") {
+        for &ext in &all_exts {
+            let dot_ext = format!(".{}", ext);
+            let prog_id = format!("PulsePlayer.AssocFile.{}", ext);
+            reg_set_string(cap_assoc_key, &dot_ext, &prog_id);
+        }
+        unsafe { RegCloseKey(cap_assoc_key); }
+    }
+
+    // 7. 注册全部 19 种 ProgID (HKCU\Software\Classes\PulsePlayer.AssocFile.{ext})
+    for &ext in &all_exts {
+        let prog_id = format!("PulsePlayer.AssocFile.{}", ext);
+        let prog_subkey = format!(r"Software\Classes\{}", prog_id);
+        if let Some(prog_key) = reg_create_key(HKEY_CURRENT_USER, &prog_subkey) {
+            let type_desc = format!("Pulse Player {} 媒体文件", ext.to_uppercase());
+            reg_set_string(prog_key, "", &type_desc);
+            reg_set_string(prog_key, "FriendlyTypeName", &type_desc);
+
+            if let Some(icon_key) = reg_create_key(prog_key, "DefaultIcon") {
+                reg_set_string(icon_key, "", &icon_val);
+                unsafe { RegCloseKey(icon_key); }
+            }
+            if let Some(cmd_key) = reg_create_key(prog_key, r"shell\open\command") {
+                reg_set_string(cmd_key, "", &open_cmd);
+                unsafe { RegCloseKey(cmd_key); }
+            }
+            unsafe { RegCloseKey(prog_key); }
+        }
+    }
+
     Ok(())
 }
 
-/// 批量应用用户所勾选的文件格式关联，写入能力注册表并广播系统 Shell 刷新通知
+/// 批量应用用户所勾选的文件格式关联，写入关联注册表并广播系统 Shell 刷新通知
 pub fn apply_file_associations(selected_exts: &[String]) -> Result<(), String> {
-    // 1. 确保基础能力模型与 SupportedTypes 注册表键已登记
+    // 1. 确保基础能力模型、SupportedTypes 及 ProgIDs 均已完整登记
     register_base_capabilities()?;
-
-    let exe_path = std::env::current_exe()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "pulse-player.exe".to_string());
-    let open_cmd = format!("\"{}\" \"%1\"", exe_path);
-    let icon_val = format!("\"{}\",0", exe_path);
 
     let all_exts: Vec<&str> = VIDEO_EXTENSIONS.iter().chain(AUDIO_EXTENSIONS.iter()).copied().collect();
 
-    // 2. 打开 Capabilities\FileAssociations 键
-    let cap_file_assoc_key = reg_create_key(
-        HKEY_CURRENT_USER,
-        r"Software\PulsePlayer\Capabilities\FileAssociations",
-    ).ok_or_else(|| "无法创建或打开 Capabilities\\FileAssociations 注册表项".to_string())?;
-
     for &ext in &all_exts {
-        let dot_ext = format!(".{}", ext);
         let prog_id = format!("PulsePlayer.AssocFile.{}", ext);
         let is_selected = selected_exts.iter().any(|s| s.eq_ignore_ascii_case(ext));
 
         if is_selected {
-            // 登记至 Capabilities\FileAssociations: .ext -> PulsePlayer.AssocFile.{ext}
-            reg_set_string(cap_file_assoc_key, &dot_ext, &prog_id);
-
-            // 注册 ProgId: HKCU\Software\Classes\PulsePlayer.AssocFile.{ext}
-            let prog_subkey = format!(r"Software\Classes\{}", prog_id);
-            if let Some(prog_key) = reg_create_key(HKEY_CURRENT_USER, &prog_subkey) {
-                let type_desc = format!("Pulse Player {} 媒体文件", ext.to_uppercase());
-                reg_set_string(prog_key, "", &type_desc);
-                reg_set_string(prog_key, "FriendlyTypeName", &type_desc);
-
-                if let Some(icon_key) = reg_create_key(prog_key, "DefaultIcon") {
-                    reg_set_string(icon_key, "", &icon_val);
-                    unsafe { RegCloseKey(icon_key); }
-                }
-                if let Some(cmd_key) = reg_create_key(prog_key, r"shell\open\command") {
-                    reg_set_string(cmd_key, "", &open_cmd);
-                    unsafe { RegCloseKey(cmd_key); }
-                }
-                unsafe { RegCloseKey(prog_key); }
-            }
-
-            // 在 HKCU\Software\Classes\.{ext}\OpenWithProgids 中登记
+            // 写入 HKCU\Software\Classes\.{ext}\OpenWithProgids
             let classes_openwith = format!(r"Software\Classes\.{}\OpenWithProgids", ext);
             if let Some(ow_key) = reg_create_key(HKEY_CURRENT_USER, &classes_openwith) {
                 reg_set_string(ow_key, &prog_id, "");
                 unsafe { RegCloseKey(ow_key); }
             }
 
-            // 在 Explorer\FileExts\.{ext}\OpenWithProgids 中登记
+            // 写入 Explorer\FileExts\.{ext}\OpenWithProgids
             let explorer_openwith = format!(
                 r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.{}\OpenWithProgids",
                 ext
@@ -333,7 +375,7 @@ pub fn apply_file_associations(selected_exts: &[String]) -> Result<(), String> {
                 unsafe { RegCloseKey(exp_ow_key); }
             }
 
-            // 在 Explorer\FileExts\.{ext}\OpenWithList 中确保登记 pulse-player.exe
+            // 写入 Explorer\FileExts\.{ext}\OpenWithList
             let explorer_list = format!(
                 r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.{}\OpenWithList",
                 ext
@@ -342,10 +384,15 @@ pub fn apply_file_associations(selected_exts: &[String]) -> Result<(), String> {
                 reg_set_string(exp_list_key, "pulse-player.exe", "");
                 unsafe { RegCloseKey(exp_list_key); }
             }
-        } else {
-            // 用户未勾选该格式，清除 Capabilities 与 OpenWithProgids 登记
-            reg_delete_value(cap_file_assoc_key, &dot_ext);
 
+            // 写入 HKCU\Software\Classes\.{ext} 默认关联键
+            let classes_ext_key = format!(r"Software\Classes\.{}", ext);
+            if let Some(ext_key) = reg_create_key(HKEY_CURRENT_USER, &classes_ext_key) {
+                reg_set_string(ext_key, "", &prog_id);
+                unsafe { RegCloseKey(ext_key); }
+            }
+        } else {
+            // 用户未勾选该格式，清除 OpenWithProgids 登记
             let classes_openwith = format!(r"Software\Classes\.{}\OpenWithProgids", ext);
             if let Some(ow_key) = reg_create_key(HKEY_CURRENT_USER, &classes_openwith) {
                 reg_delete_value(ow_key, &prog_id);
@@ -360,14 +407,27 @@ pub fn apply_file_associations(selected_exts: &[String]) -> Result<(), String> {
                 reg_delete_value(exp_ow_key, &prog_id);
                 unsafe { RegCloseKey(exp_ow_key); }
             }
+
+            // 如果 HKCU\Software\Classes\.{ext} 默认值为 PulsePlayer，则清理
+            let classes_ext_key = format!(r"Software\Classes\.{}", ext);
+            if let Some(ext_key) = reg_create_key(HKEY_CURRENT_USER, &classes_ext_key) {
+                if let Some(curr_default) = query_default_prog_id(ext) {
+                    if curr_default.contains("PulsePlayer") || curr_default.contains("pulse-player") {
+                        reg_delete_value(ext_key, "");
+                    }
+                }
+                unsafe { RegCloseKey(ext_key); }
+            }
         }
     }
 
-    unsafe {
-        RegCloseKey(cap_file_assoc_key);
+    // 记录用户已主动配置过关联的标记，防止后续清空选项时被误判为首次启动
+    if let Some(app_meta_key) = reg_create_key(HKEY_CURRENT_USER, r"Software\PulsePlayer") {
+        reg_set_string(app_meta_key, "AssociationsConfigured", "1");
+        unsafe { RegCloseKey(app_meta_key); }
     }
 
-    // 3. 广播 Windows Shell 关联变更通知 (SHCNE_ASSOCCHANGED)，令外壳立即刷新图标与右键菜单
+    // 2. 广播 Windows Shell 关联变更通知 (SHCNE_ASSOCCHANGED)，令外壳立即刷新图标与右键菜单
     unsafe {
         SHChangeNotify(
             SHCNE_ASSOCCHANGED as i32,
@@ -386,15 +446,17 @@ pub fn get_all_associations() -> Vec<FileAssociationItem> {
 
     // 1. 扫描视频类
     for &ext in VIDEO_EXTENSIONS {
-        let (is_default, current_app) = match query_user_choice_prog_id(ext) {
+        let (is_default, current_app) = match query_default_prog_id(ext) {
             Some(prog_id) => format_friendly_app_name(&prog_id),
             None => (false, "未指定默认应用".to_string()),
         };
-        let is_registered = reg_value_exists(
+        let is_ow_registered = reg_value_exists(
             HKEY_CURRENT_USER,
-            r"Software\PulsePlayer\Capabilities\FileAssociations",
-            &format!(".{}", ext),
+            &format!(r"Software\Classes\.{}\OpenWithProgids", ext),
+            &format!("PulsePlayer.AssocFile.{}", ext),
         );
+        let is_registered = is_default || is_ow_registered;
+
         results.push(FileAssociationItem {
             ext: ext.to_string(),
             is_video: true,
@@ -406,15 +468,17 @@ pub fn get_all_associations() -> Vec<FileAssociationItem> {
 
     // 2. 扫描音频类
     for &ext in AUDIO_EXTENSIONS {
-        let (is_default, current_app) = match query_user_choice_prog_id(ext) {
+        let (is_default, current_app) = match query_default_prog_id(ext) {
             Some(prog_id) => format_friendly_app_name(&prog_id),
             None => (false, "未指定默认应用".to_string()),
         };
-        let is_registered = reg_value_exists(
+        let is_ow_registered = reg_value_exists(
             HKEY_CURRENT_USER,
-            r"Software\PulsePlayer\Capabilities\FileAssociations",
-            &format!(".{}", ext),
+            &format!(r"Software\Classes\.{}\OpenWithProgids", ext),
+            &format!("PulsePlayer.AssocFile.{}", ext),
         );
+        let is_registered = is_default || is_ow_registered;
+
         results.push(FileAssociationItem {
             ext: ext.to_string(),
             is_video: false,
@@ -477,7 +541,7 @@ mod tests {
 
     #[test]
     fn test_apply_and_query_associations() {
-        // 测试将 mp4 与 mp3 登记关联
+        // 1. 测试将 mp4 与 mp3 登记关联
         let test_exts = vec!["mp4".to_string(), "mp3".to_string()];
         let res = apply_file_associations(&test_exts);
         assert!(res.is_ok(), "apply_file_associations 应该执行成功: {:?}", res);
@@ -492,7 +556,7 @@ mod tests {
         let rmvb_item = list.iter().find(|i| i.ext == "rmvb").expect("应包含 rmvb");
         assert!(!rmvb_item.is_registered, "未选中的 rmvb 应该未登记关联");
 
-        // 验证基础注册表键存在
+        // 验证基础注册表键与能力表完整存在
         assert!(reg_value_exists(
             HKEY_CURRENT_USER,
             r"Software\Applications\pulse-player.exe\SupportedTypes",
@@ -508,5 +572,29 @@ mod tests {
             r"Software\RegisteredApplications",
             "PulsePlayer"
         ));
+        // Capabilities\FileAssociations 必须包含所有支持格式（声明完整播放能力）
+        assert!(reg_value_exists(
+            HKEY_CURRENT_USER,
+            r"Software\PulsePlayer\Capabilities\FileAssociations",
+            ".mp4"
+        ));
+        assert!(reg_value_exists(
+            HKEY_CURRENT_USER,
+            r"Software\PulsePlayer\Capabilities\FileAssociations",
+            ".rmvb"
+        ));
+
+        // 2. 测试取消选择 mp4（仅保留 mp3）
+        let test_exts_2 = vec!["mp3".to_string()];
+        let res_2 = apply_file_associations(&test_exts_2);
+        assert!(res_2.is_ok());
+
+        let list_2 = get_all_associations();
+        let mp4_item_2 = list_2.iter().find(|i| i.ext == "mp4").expect("应包含 mp4");
+        assert!(!mp4_item_2.is_registered || mp4_item_2.is_default, "取消选择后若非系统默认则不应再登记关联");
+
+        let mp3_item_2 = list_2.iter().find(|i| i.ext == "mp3").expect("应包含 mp3");
+        assert!(mp3_item_2.is_registered, "mp3 仍应处于登记关联状态");
     }
 }
+

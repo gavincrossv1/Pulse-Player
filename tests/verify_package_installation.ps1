@@ -70,6 +70,8 @@ Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Bi-
 Remove-Item -Path "HKCU:\Software\pulseplayer" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\Software\PulsePlayer" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\Software\Applications\pulse-player.exe" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKCU:\Software\Classes\Applications\pulse-player.exe" -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path "HKCU:\Software\Classes" -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like "PulsePlayer.AssocFile.*" } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Remove-ItemProperty -Path "HKCU:\Software\RegisteredApplications" -Name "PulsePlayer" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\Software\biplayer" -Recurse -Force -ErrorAction SilentlyContinue
 

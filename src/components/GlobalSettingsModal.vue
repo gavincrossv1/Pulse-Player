@@ -463,20 +463,26 @@ const handleSelectRecommended = () => {
   selectedExts.value = new Set(RECOMMENDED_EXTS)
 }
 
-const fetchAssociations = async () => {
+const isAssocInitialized = ref(false)
+
+const fetchAssociations = async (forceSync = false) => {
   isLoadingAssoc.value = true
   try {
     const res = await invoke<FileAssociationItem[]>('get_file_associations')
     assocList.value = res || []
 
-    // 初始化勾选状态：优先同步系统注册表已登记关联的格式；若初次运行无任何登记，默认载入推荐格式
-    if (selectedExts.value.size === 0) {
-      const registered = (res || []).filter((i) => i.is_registered || i.is_default).map((i) => i.ext)
+    const registered = (res || []).filter((i) => i.is_registered || i.is_default).map((i) => i.ext)
+    const hasConfigured = localStorage.getItem('pulse_player_assoc_configured') === 'true'
+
+    if (!isAssocInitialized.value || forceSync) {
       if (registered.length > 0) {
         selectedExts.value = new Set(registered)
-      } else {
+      } else if (!hasConfigured) {
         selectedExts.value = new Set(RECOMMENDED_EXTS)
+      } else {
+        selectedExts.value = new Set()
       }
+      isAssocInitialized.value = true
     }
   } catch (err) {
     console.error('获取文件关联状态失败:', err)
@@ -492,8 +498,9 @@ const handleApplyAssociations = async () => {
     await invoke('apply_file_associations', {
       selectedExts: Array.from(selectedExts.value),
     })
+    localStorage.setItem('pulse_player_assoc_configured', 'true')
     showToast('✓ 文件关联已成功应用！已写入系统注册表并通知 Windows 外壳刷新。')
-    await fetchAssociations()
+    await fetchAssociations(false)
   } catch (err) {
     console.error('应用文件关联失败:', err)
     showToast('✕ 应用文件关联失败: ' + String(err))
@@ -609,8 +616,11 @@ const handleKeyDown = (e: KeyboardEvent) => {
 watch(
   () => props.visible,
   (val) => {
-    if (val && currentTab.value === 'association') {
-      fetchAssociations()
+    if (val) {
+      isAssocInitialized.value = false
+      if (currentTab.value === 'association') {
+        fetchAssociations(true)
+      }
     }
   }
 )
