@@ -4,13 +4,15 @@
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::process::Command;
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW,
     HKEY, HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, KEY_READ, REG_SZ,
 };
-use windows_sys::Win32::UI::Shell::{SHChangeNotify, SHCNE_ASSOCCHANGED, SHCNF_IDLIST};
+use windows_sys::Win32::UI::Shell::{
+    ShellExecuteW, SHChangeNotify, SHCNE_ASSOCCHANGED, SHCNF_IDLIST,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileAssociationItem {
@@ -494,53 +496,122 @@ pub fn get_all_associations() -> Vec<FileAssociationItem> {
     results
 }
 
-/// 打开 Windows 原生默认应用设置面板 (优先尝试定位至 Pulse Player)
+/// 打开 Windows 原生默认应用设置面板 (直接定位至 Pulse Player 能力配置页)
 pub fn open_default_apps_settings() -> Result<(), String> {
-    // 优先尝试直接定位到 PulsePlayer 默认应用设置（Windows 10 1709+ / Windows 11 原生支持）
-    let direct_url = "ms-settings:defaultapps?registeredAppUser=PulsePlayer";
-    let res = Command::new("cmd")
-        .args(["/c", "start", direct_url])
-        .spawn();
+    let direct_url_w = to_wide_null("ms-settings:defaultapps?registeredAppUser=PulsePlayer");
+    let op_w = to_wide_null("open");
 
-    if res.is_err() {
-        Command::new("cmd")
-            .args(["/c", "start", "ms-settings:defaultapps"])
-            .spawn()
-            .map_err(|e| format!("打开系统默认应用设置失败: {}", e))?;
+    let res = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            op_w.as_ptr(),
+            direct_url_w.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+
+    // ShellExecute 返回值大于 32 表示成功启动外部进程或协议
+    if (res as usize) <= 32 {
+        let fallback_url_w = to_wide_null("ms-settings:defaultapps");
+        let fallback_res = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                op_w.as_ptr(),
+                fallback_url_w.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        if (fallback_res as usize) <= 32 {
+            return Err("打开系统默认应用设置失败".to_string());
+        }
     }
     Ok(())
 }
 
-/// 针对单项特定文件后缀唤起 Windows 原生“打开方式”选择弹窗
+/// 针对单项特定文件后缀唤起 Windows 原生设置引导用户设为默认播放器
 pub fn prompt_associate_extension(ext: &str) -> Result<(), String> {
     let clean_ext = ext.trim_start_matches('.').to_lowercase();
-    let temp_dir = std::env::temp_dir().join("Pulse-Player");
-    let _ = std::fs::create_dir_all(&temp_dir);
-    let sample_file = temp_dir.join(format!("associate_sample.{}", clean_ext));
 
-    // 创建或更新该扩展名的临时占位空文件
-    if !sample_file.exists() {
-        let _ = std::fs::write(&sample_file, b"");
+    // 1. 清理以往遗留的历史临时探测占位文件 (若存在)
+    let temp_dir = std::env::temp_dir().join("Pulse-Player");
+    let sample_file = temp_dir.join(format!("associate_sample.{}", clean_ext));
+    if sample_file.exists() {
+        let _ = std::fs::remove_file(&sample_file);
     }
 
-    // 调用 Windows 原生 shell32 OpenAs 对话框，由用户合规勾选“始终”
-    Command::new("rundll32.exe")
-        .args([
-            "shell32.dll,OpenAs_RunDLL",
-            &sample_file.to_string_lossy(),
-        ])
-        .spawn()
-        .map_err(|e| format!("唤起 Windows 打开方式对话框失败: {}", e))?;
+    // 2. 确保 Pulse Player 应用程序能力模型及该扩展名的 ProgID 与 OpenWith 注册表就绪
+    register_base_capabilities()?;
 
-    Ok(())
+    let prog_id = format!("PulsePlayer.AssocFile.{}", clean_ext);
+
+    // 写入 HKCU\Software\Classes\.{clean_ext}\OpenWithProgids
+    let classes_openwith = format!(r"Software\Classes\.{}\OpenWithProgids", clean_ext);
+    if let Some(ow_key) = reg_create_key(HKEY_CURRENT_USER, &classes_openwith) {
+        reg_set_string(ow_key, &prog_id, "");
+        unsafe { RegCloseKey(ow_key); }
+    }
+
+    // 写入 Explorer\FileExts\.{clean_ext}\OpenWithProgids
+    let explorer_openwith = format!(
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.{}\OpenWithProgids",
+        clean_ext
+    );
+    if let Some(exp_ow_key) = reg_create_key(HKEY_CURRENT_USER, &explorer_openwith) {
+        reg_set_string(exp_ow_key, &prog_id, "");
+        unsafe { RegCloseKey(exp_ow_key); }
+    }
+
+    // 写入 Explorer\FileExts\.{clean_ext}\OpenWithList
+    let explorer_list = format!(
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.{}\OpenWithList",
+        clean_ext
+    );
+    if let Some(exp_list_key) = reg_create_key(HKEY_CURRENT_USER, &explorer_list) {
+        reg_set_string(exp_list_key, "pulse-player.exe", "");
+        unsafe { RegCloseKey(exp_list_key); }
+    }
+
+    // 写入 HKCU\Software\Classes\.{clean_ext} 默认关联键
+    let classes_ext_key = format!(r"Software\Classes\.{}", clean_ext);
+    if let Some(ext_key) = reg_create_key(HKEY_CURRENT_USER, &classes_ext_key) {
+        reg_set_string(ext_key, "", &prog_id);
+        unsafe { RegCloseKey(ext_key); }
+    }
+
+    // 记录用户已主动配置过关联的标记
+    if let Some(app_meta_key) = reg_create_key(HKEY_CURRENT_USER, r"Software\PulsePlayer") {
+        reg_set_string(app_meta_key, "AssociationsConfigured", "1");
+        unsafe { RegCloseKey(app_meta_key); }
+    }
+
+    // 广播 Windows Shell 关联变更通知 (SHCNE_ASSOCCHANGED)
+    unsafe {
+        SHChangeNotify(
+            SHCNE_ASSOCCHANGED as i32,
+            SHCNF_IDLIST,
+            std::ptr::null(),
+            std::ptr::null(),
+        );
+    }
+
+    // 3. 原生唤起 Windows 默认应用深度设置面板，直达 Pulse Player 格式接管视图
+    open_default_apps_settings()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static REG_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_get_all_associations() {
+        let _lock = REG_TEST_MUTEX.lock().unwrap();
         let list = get_all_associations();
         assert!(!list.is_empty());
         assert!(list.iter().any(|item| item.ext == "mp4" && item.is_video));
@@ -552,6 +623,7 @@ mod tests {
 
     #[test]
     fn test_apply_and_query_associations() {
+        let _lock = REG_TEST_MUTEX.lock().unwrap();
         // 1. 测试将 mp4 与 mp3 登记关联
         let test_exts = vec!["mp4".to_string(), "mp3".to_string()];
         let res = apply_file_associations(&test_exts);
@@ -607,5 +679,31 @@ mod tests {
         let mp3_item_2 = list_2.iter().find(|i| i.ext == "mp3").expect("应包含 mp3");
         assert!(mp3_item_2.is_registered, "mp3 仍应处于登记关联状态");
     }
+
+    #[test]
+    fn test_prompt_associate_extension_registers_progid_and_cleans_sample() {
+        let _lock = REG_TEST_MUTEX.lock().unwrap();
+        // 创建一个虚假遗留的 sample 占位文件
+        let temp_dir = std::env::temp_dir().join("Pulse-Player");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let sample_file = temp_dir.join("associate_sample.wav");
+        let _ = std::fs::write(&sample_file, b"test dummy");
+        assert!(sample_file.exists());
+
+        // 执行单项扩展名关联引导 (wav)
+        let res = prompt_associate_extension("wav");
+        assert!(res.is_ok(), "prompt_associate_extension 应该成功: {:?}", res);
+
+        // 验证遗留 sample 文件已被彻底清理
+        assert!(!sample_file.exists(), "prompt_associate_extension 应自动清理 associate_sample 占位文件");
+
+        // 验证 wav 已在 OpenWithProgids 中正确登记
+        assert!(reg_value_exists(
+            HKEY_CURRENT_USER,
+            r"Software\Classes\.wav\OpenWithProgids",
+            "PulsePlayer.AssocFile.wav"
+        ));
+    }
 }
+
 

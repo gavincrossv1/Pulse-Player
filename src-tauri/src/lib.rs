@@ -18,20 +18,41 @@ use playlist::SUPPORTED_EXTENSIONS;
 const SINGLE_INSTANCE_PORT: u16 = 45389;
 const SINGLE_INSTANCE_MAGIC: &str = "PULSE_PLAYER_IPC:v1:";
 
+/// 校验文件是否为合法的媒体播放目标（过滤 0 字节无效空文件与系统关联探测占位文件）
+pub(crate) fn is_valid_media_file(p: &std::path::Path) -> bool {
+    if !p.is_file() {
+        return false;
+    }
+    // 过滤系统关联测试探测占位文件 (如 associate_sample.*)
+    if let Some(file_name) = p.file_name().and_then(|n| n.to_str()) {
+        if file_name.to_lowercase().starts_with("associate_sample") {
+            return false;
+        }
+    }
+    // 过滤 0 字节无效空文件 (杜绝空文件被误载入黑胶/播放器界面)
+    if let Ok(metadata) = p.metadata() {
+        if metadata.len() == 0 {
+            return false;
+        }
+    }
+    if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+        if SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 1. 检测启动入参（双击视频文件关联启动或命令行入参）
+    // 1. 检测启动入参（双击视频文件关联启动或命令行入参，过滤占位空文件）
     let mut initial_file: Option<String> = None;
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {
         let candidate = &args[1];
         let p = std::path::Path::new(candidate);
-        if p.is_file() {
-            if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                if SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
-                    initial_file = Some(normalize_path(&p.to_string_lossy()));
-                }
-            }
+        if is_valid_media_file(p) {
+            initial_file = Some(normalize_path(&p.to_string_lossy()));
         }
     }
 
@@ -86,9 +107,12 @@ pub fn run() {
                                 let _ = w.set_focus();
                             }
 
-                            // 通知前端即刻切集播放
+                            // 通知前端即刻切集播放（严格校验媒体文件有效性，过滤占位空文件）
                             if !path_str.is_empty() {
-                                let _ = app_handle.emit("open-file", path_str);
+                                let p = std::path::Path::new(&path_str);
+                                if is_valid_media_file(p) {
+                                    let _ = app_handle.emit("open-file", path_str);
+                                }
                             }
                         }
                     }
@@ -151,3 +175,38 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("运行 Pulse Player 应用程序异常");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_valid_media_file() {
+        let temp_dir = std::env::temp_dir().join("Pulse-Player-Test-Validation");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // 1. 0 字节空文件 (即使是合法后缀也应被拒绝)
+        let empty_wav = temp_dir.join("empty.wav");
+        let _ = std::fs::write(&empty_wav, b"");
+        assert!(!is_valid_media_file(&empty_wav), "0 字节文件不能作为合法播放文件");
+
+        // 2. associate_sample 探测占位文件 (即使有内容也应被拒绝)
+        let sample_wav = temp_dir.join("associate_sample.wav");
+        let _ = std::fs::write(&sample_wav, b"dummy content");
+        assert!(!is_valid_media_file(&sample_wav), "associate_sample 占位文件必须被过滤");
+
+        // 3. 不受支持的扩展名
+        let txt_file = temp_dir.join("test.txt");
+        let _ = std::fs::write(&txt_file, b"hello world");
+        assert!(!is_valid_media_file(&txt_file), "非媒体扩展名必须被过滤");
+
+        // 4. 有内容的合法媒体文件
+        let valid_wav = temp_dir.join("valid.wav");
+        let _ = std::fs::write(&valid_wav, b"RIFF....WAVE");
+        assert!(is_valid_media_file(&valid_wav), "有效媒体文件应该被允许");
+
+        // 清理测试临时文件
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+}
+

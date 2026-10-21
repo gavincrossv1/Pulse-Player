@@ -150,10 +150,12 @@ onMounted(async () => {
     handleVideoEnded()
   })
 
-  // 3. 监听单实例唤起与视频切换事件 (双击新视频直接切流播放)
+  // 3. 监听单实例唤起与视频切换事件 (双击新视频直接切流播放，过滤关联测试探测文件)
   const u5 = await listen<string>('open-file', async (e) => {
     if (e.payload && e.payload.trim()) {
-      await startPlay(e.payload.trim())
+      const p = e.payload.trim()
+      if (p.toLowerCase().includes('associate_sample')) return
+      await startPlay(p)
     }
   })
   unlistenList.push(u1, u2, u3, u4, u5)
@@ -161,7 +163,7 @@ onMounted(async () => {
   // 4. 检查启动入参：若用户双击视频关联启动，直接直达播放态！
   try {
     const launchFile = await invoke<string | null>('get_launch_file')
-    if (launchFile) {
+    if (launchFile && !launchFile.toLowerCase().includes('associate_sample')) {
       await startPlay(launchFile)
     }
   } catch (err) {

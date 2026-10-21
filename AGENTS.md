@@ -60,7 +60,7 @@ pnpm tauri build
 5. **用户数据 Schema Versioning 与平滑自愈演进**：
    持久化存储在 `%APPDATA%\Pulse-Player\history.json` 中统一包裹 `HistoryData { version: 1, records }`。读取阶段向下兼容旧版裸数组，识别旧格式时自动自愈升级并持久化，保障后续数据结构演进的向下兼容。
 6. **Windows 原生文件关联透视与合规引导机制**：
-   严格遵循 Windows 10/11 的 UserChoice 安全防护机制，后端通过 Win32 注册表 API 毫秒级读取各后缀的 ProgId 并解析出友好软件名；前端提供“系统设置批量接管”与“单项原生 OpenAs 对话框引导”两套合规操作入口。
+   严格遵循 Windows 10/11 的 UserChoice 安全防护机制，后端通过 Win32 注册表 API 毫秒级读取各后缀的 ProgId 并解析出友好软件名；彻底废弃容易导致“仅一次”弹窗与误播放空文件的 legacy `OpenAs_RunDLL` 占位调用，改为通过 `ms-settings:defaultapps?registeredAppUser=PulsePlayer` 原生深度跳转定位到 Pulse Player 专属管理页引导合规设置，并在单实例 IPC 及启动阶段对 0 字节无效文件与探测占位文件实施严格过滤。
 7. **Tauri 2 原生内置静默更新 (Tauri Updater) 闭环与原地覆盖机制**：
    杜绝跳转外部网页手动下载的割裂体验。前端通过 `@tauri-apps/plugin-updater` 异步检测 `latest.json` 官方清单并内置全量下载进度条（百分比、已下载大小 / 总大小）；下载完成自动校验 Minisign (Ed25519) 防篡改数字签名；Windows 下配置 `installMode = "passive"`，安装触发时主进程调用 `install({ restartAfterInstall: true })` 原地优雅退出释放文件锁，由 NSIS 在当前程序运行目录精准执行原地覆盖静默安装并自拉起，彻底杜绝多份路径残留与文件锁占用冲突。
 

@@ -234,11 +234,11 @@
                       <SvgIcon name="check" size="10" />
                       <span>默认</span>
                     </span>
-                    <!-- 被其他软件锁定或未指定默认: 可点击一键唤起授权弹窗 -->
+                    <!-- 被其他软件锁定或未指定默认: 可点击一键唤起系统设置设为默认 -->
                     <button
                       v-else
                       class="ext-action-btn"
-                      :title="`当前默认: ${item.current_app}。点击呼出系统对话框设为默认`"
+                      :title="`当前默认: ${item.current_app}。点击唤起系统设置设为默认`"
                       @click.stop="handlePromptAssociate(item.ext, $event)"
                     >
                       <span class="action-btn-text">{{ item.current_app }}</span>
@@ -292,11 +292,11 @@
                       <SvgIcon name="check" size="10" />
                       <span>默认</span>
                     </span>
-                    <!-- 被其他软件锁定或未指定默认: 可点击一键唤起授权弹窗 -->
+                    <!-- 被其他软件锁定或未指定默认: 可点击一键唤起系统设置设为默认 -->
                     <button
                       v-else
                       class="ext-action-btn"
-                      :title="`当前默认: ${item.current_app}。点击呼出系统对话框设为默认`"
+                      :title="`当前默认: ${item.current_app}。点击唤起系统设置设为默认`"
                       @click.stop="handlePromptAssociate(item.ext, $event)"
                     >
                       <span class="action-btn-text">{{ item.current_app }}</span>
@@ -618,14 +618,20 @@ const handleOpenSystemSettings = async () => {
 const handlePromptAssociate = async (ext: string, event?: Event) => {
   if (event) event.stopPropagation()
   try {
+    if (!selectedExts.value.has(ext)) {
+      selectedExts.value.add(ext)
+      localStorage.setItem('pulse_player_assoc_configured', 'true')
+    }
     await invoke('prompt_associate_extension', { ext })
-    // 用户在 Windows 对话框中完成选择后，监听窗口聚焦与延时自动刷新，即时呈现生效结果
+    showToast(`已唤起系统设置，请在列表中将 Pulse Player 设为默认应用`)
+    // 用户在 Windows 设置中完成选择后，监听窗口聚焦与延时自动刷新，即时呈现生效结果
     const refreshLater = () => fetchAssociations(true)
     setTimeout(refreshLater, 1500)
     setTimeout(refreshLater, 3500)
     window.addEventListener('focus', refreshLater, { once: true })
   } catch (err) {
-    console.error('唤起打开方式弹窗失败:', err)
+    console.error('唤起系统设置失败:', err)
+    showToast('✕ 唤起系统设置失败: ' + String(err))
   }
 }
 
