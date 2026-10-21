@@ -460,10 +460,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { check, type Update } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
 import SvgIcon from './SvgIcon.vue'
 import { useConfig, GlobalConfig } from '../composables/useConfig'
+import { useUpdater } from '../composables/useUpdater'
 
 export interface FileAssociationItem {
   ext: string
@@ -626,14 +625,16 @@ const handleSwitchToAssociation = () => {
   fetchAssociations()
 }
 
+const scheduleAssociationSync = () => {
+  setTimeout(() => fetchAssociations(true), 1500)
+  setTimeout(() => fetchAssociations(true), 3500)
+}
+
 const handleOpenSystemSettings = async () => {
   try {
     await invoke('open_default_apps_settings')
     showToast('已唤起系统设置，请在列表中将 Pulse Player 设为默认应用')
-    const refreshLater = () => fetchAssociations(true)
-    setTimeout(refreshLater, 1500)
-    setTimeout(refreshLater, 3500)
-    window.addEventListener('focus', refreshLater, { once: true })
+    scheduleAssociationSync()
   } catch (err) {
     console.error('打开系统设置失败:', err)
     showToast('✕ 打开系统设置失败: ' + String(err))
@@ -653,11 +654,7 @@ const handlePromptAssociate = async (ext: string, event?: Event) => {
     }
     await invoke('prompt_associate_extension', { ext })
     showToast(`已唤起系统设置，请将 .${ext.toUpperCase()} 或全部格式设为 Pulse Player 默认`)
-    // 用户在 Windows 设置中完成选择后，监听窗口聚焦与延时自动刷新，即时呈现生效结果
-    const refreshLater = () => fetchAssociations(true)
-    setTimeout(refreshLater, 1500)
-    setTimeout(refreshLater, 3500)
-    window.addEventListener('focus', refreshLater, { once: true })
+    scheduleAssociationSync()
   } catch (err) {
     console.error('唤起系统设置失败:', err)
     showToast('✕ 唤起系统设置失败: ' + String(err))
@@ -668,141 +665,26 @@ const handlePromptAssociate = async (ext: string, event?: Event) => {
   }
 }
 
-// =================== 检查更新逻辑 (Tauri 2 原生静默更新) ===================
-const currentAppVersion = 'v0.3.1'
-const isCheckingUpdate = ref(false)
-const updateStatusText = ref('点击右侧按钮连接官方服务器检查更新')
-const pendingUpdate = ref<Update | null>(null)
-
-// 下载与安装阶段状态: 'idle' | 'downloading' | 'ready' | 'error'
-const downloadState = ref<'idle' | 'downloading' | 'ready' | 'error'>('idle')
-const downloadedBytes = ref(0)
-const totalBytes = ref(0)
-const downloadPercent = ref(0)
-const downloadErrorMsg = ref('')
-const isRestarting = ref(false)
-
-const formatBytes = (bytes: number): string => {
-  if (!bytes || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  const val = (bytes / Math.pow(1024, i)).toFixed(1)
-  return `${val} ${units[i]}`
-}
-
-const formatDate = (dateStr?: string): string => {
-  if (!dateStr) return ''
-  try {
-    const d = new Date(dateStr)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  } catch {
-    return dateStr
-  }
-}
-
-const handleCheckUpdate = async () => {
-  if (isCheckingUpdate.value) return
-  isCheckingUpdate.value = true
-  updateStatusText.value = '正在连接官方更新服务器检测最新版本...'
-
-  if (pendingUpdate.value) {
-    try {
-      await pendingUpdate.value.close()
-    } catch (_) {}
-    pendingUpdate.value = null
-  }
-  downloadState.value = 'idle'
-  downloadedBytes.value = 0
-  totalBytes.value = 0
-  downloadPercent.value = 0
-  downloadErrorMsg.value = ''
-
-  try {
-    const update = await check()
-    if (update) {
-      pendingUpdate.value = update
-      updateStatusText.value = `已检测到新版本: v${update.version}`
-    } else {
-      updateStatusText.value = `当前已是最新版本 (${currentAppVersion})，无需更新`
-    }
-  } catch (err: unknown) {
-    console.error('检查更新失败:', err)
-    const errText = (err as Error)?.message || String(err)
-    if (errText.includes('Could not fetch a valid release') || errText.includes('404')) {
-      updateStatusText.value = `当前已是最新版本 (${currentAppVersion})，官方暂无新版本发布`
-    } else {
-      updateStatusText.value = `检查更新失败: ${errText}`
-    }
-  } finally {
-    isCheckingUpdate.value = false
-  }
-}
-
-const handleStartDownload = async () => {
-  if (!pendingUpdate.value || downloadState.value === 'downloading') return
-  downloadState.value = 'downloading'
-  downloadedBytes.value = 0
-  totalBytes.value = 0
-  downloadPercent.value = 0
-  downloadErrorMsg.value = ''
-
-  try {
-    let accumulated = 0
-    await pendingUpdate.value.download((event) => {
-      if (event.event === 'Started') {
-        totalBytes.value = event.data.contentLength ?? 0
-      } else if (event.event === 'Progress') {
-        accumulated += event.data.chunkLength
-        downloadedBytes.value = accumulated
-        if (totalBytes.value > 0) {
-          downloadPercent.value = Math.min(
-            100,
-            Math.round((accumulated / totalBytes.value) * 100)
-          )
-        }
-      } else if (event.event === 'Finished') {
-        downloadPercent.value = 100
-      }
-    })
-
-    // 下载完成并通过 Minisign 数字签名校验
-    downloadState.value = 'ready'
-  } catch (err: unknown) {
-    console.error('下载或验证更新包失败:', err)
-    downloadState.value = 'error'
-    downloadErrorMsg.value = `下载更新失败: ${(err as Error)?.message || String(err)}`
-  }
-}
-
-const handleRestartAndInstall = async () => {
-  if (!pendingUpdate.value || isRestarting.value) return
-  isRestarting.value = true
-  try {
-    // Windows 下调用 install 会启动静默安装程序并退出主进程释放文件锁
-    await pendingUpdate.value.install({ restartAfterInstall: true })
-    // 降级兜底：若未退出则主动调用 relaunch
-    await relaunch()
-  } catch (err: unknown) {
-    console.error('拉起安装更新异常:', err)
-    try {
-      await relaunch()
-    } catch {
-      downloadState.value = 'error'
-      downloadErrorMsg.value = `拉起安装程序失败: ${(err as Error)?.message || String(err)}`
-      isRestarting.value = false
-    }
-  }
-}
-
-const handleDismissUpdate = async () => {
-  if (pendingUpdate.value) {
-    try {
-      await pendingUpdate.value.close()
-    } catch (_) {}
-    pendingUpdate.value = null
-  }
-  downloadState.value = 'idle'
-}
+// =================== 检查更新逻辑 (接入 useUpdater 原生隔离状态机) ===================
+const {
+  currentAppVersion,
+  isCheckingUpdate,
+  updateStatusText,
+  updateInfo: pendingUpdate,
+  downloadState,
+  downloadedBytes,
+  totalBytes,
+  downloadPercent,
+  downloadErrorMsg,
+  isRestarting,
+  formatBytes,
+  formatDate,
+  handleCheckUpdate,
+  handleStartDownload,
+  handleRestartAndInstall,
+  handleDismissUpdate,
+  cleanupUpdater,
+} = useUpdater()
 
 const handleOpenGithub = async () => {
   try {
@@ -845,9 +727,8 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('focus', handleWindowFocus)
-  if (pendingUpdate.value && downloadState.value !== 'downloading') {
-    pendingUpdate.value.close().catch(() => {})
-  }
+  if (toastTimer) clearTimeout(toastTimer)
+  cleanupUpdater()
 })
 </script>
 

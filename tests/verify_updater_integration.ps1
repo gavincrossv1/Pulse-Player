@@ -91,4 +91,31 @@ if (Test-Path "src-tauri\.updater.key") {
     Write-Host "[PASS] Minisign 数字签名自动化生成与版本绑定测试通过！" -ForegroundColor Green
 }
 
+# 5. 验证前端更新模块与原生资源隔离 (防 Proxy 拦截 ES 私有字段回归验证)
+$updaterTsPath = "src\composables\useUpdater.ts"
+if (-not (Test-Path $updaterTsPath)) {
+    throw "校验失败: 未找到前端更新状态机模块: $updaterTsPath"
+}
+$updaterTsContent = Get-Content $updaterTsPath -Raw
+if ($updaterTsContent -match "ref<Update(\s*\||\s*>)") {
+    throw "校验失败: useUpdater.ts 中禁止使用 ref<Update>，避免 Vue Proxy 拦截 ES 私有成员引发崩溃！"
+}
+if ($updaterTsContent -notmatch "let activeUpdate:\s*Update\s*\|\s*null") {
+    throw "校验失败: useUpdater.ts 必须将 activeUpdate 维持在纯 JS 内部作用域隔离！"
+}
+$modalVuePath = "src\components\GlobalSettingsModal.vue"
+$modalContent = Get-Content $modalVuePath -Raw
+if ($modalContent -match "ref<Update(\s*\||\s*>)") {
+    throw "校验失败: GlobalSettingsModal.vue 中禁止使用 ref<Update>，必须通过 useUpdater 状态机安全消费！"
+}
+Write-Host "[PASS] 前端原生 FFI 资源隔离 (防 Proxy 拦截 ES 私有字段) 校验通过！" -ForegroundColor Green
+
+# 6. 运行 ES 私有成员 Proxy 隔离单测
+Write-Host ">>> 运行 Node 原生 ES 私有字段与 Proxy 隔离单元测试..." -ForegroundColor Yellow
+node --test tests/updater_proxy_isolation.test.mjs
+if ($LASTEXITCODE -ne 0) {
+    throw "校验失败: updater_proxy_isolation.test.mjs 单元测试未通过"
+}
+Write-Host "[PASS] Node 原生私有字段隔离自动化单测全部通过！" -ForegroundColor Green
+
 Write-Host ">>> 全部 Tauri Updater 体系测试均已通过！[OK]`n" -ForegroundColor Green
