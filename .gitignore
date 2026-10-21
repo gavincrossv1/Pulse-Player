@@ -38,3 +38,7 @@ test.exe
 test.pdb
 test_mpv.exe
 test_mpv.pdb
+
+# Tauri Updater 密钥（本地生成与私钥保护）
+src-tauri/.updater.key*
+*.key

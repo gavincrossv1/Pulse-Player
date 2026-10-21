@@ -342,6 +342,23 @@
       <path d="M10 14L21 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
     </g>
 
+    <!-- 下载更新 -->
+    <g v-else-if="name === 'download'">
+      <path
+        d="M12 3V15M12 15L7 10M12 15L17 10"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <path
+        d="M4 17V19C4 20.1046 4.89543 21 6 21H18C19.1046 21 20 20.1046 20 19V17"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+      />
+    </g>
+
     <!-- 默认兜底 -->
     <circle v-else cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5" />
   </svg>

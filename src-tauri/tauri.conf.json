@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": ["../libs/mpv/libmpv-2.dll"],
     "windows": {
       "nsis": {
@@ -43,5 +44,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFERjQzM0Q1QjIzQzI1NEIKUldSTEpUeXkxVFAwcmNFaithZmdGdVVVeC84cjRZdWZuV2RTbytQdjFjeUYrQWpJSEkvN2Z4YzgK",
+      "endpoints": [
+        "https://github.com/gavincrossv1/Pulse-Player/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

@@ -59,6 +59,8 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .setup(move |app| {
             // 确保 Windows 应用程序能力模型及 SupportedTypes 基础注册表键就绪

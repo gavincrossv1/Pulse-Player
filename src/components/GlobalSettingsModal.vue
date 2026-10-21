@@ -315,23 +315,84 @@
               </div>
             </div>
 
-            <!-- 发现新版本时展示的更新卡片 -->
-            <div v-if="updateInfo && updateInfo.hasUpdate" class="new-version-box">
+            <!-- 发现新版本时展示的原生内置更新卡片 -->
+            <div v-if="pendingUpdate" class="new-version-box">
               <div class="new-version-header">
                 <span class="new-version-tag">发现新版本</span>
-                <span class="new-version-name">{{ updateInfo.latestVersion }}</span>
+                <span class="new-version-name">v{{ pendingUpdate.version }}</span>
+                <span v-if="pendingUpdate.date" class="new-version-date">({{ formatDate(pendingUpdate.date) }})</span>
               </div>
-              <div v-if="updateInfo.releaseNotes" class="new-version-notes">
-                {{ updateInfo.releaseNotes }}
+              <div v-if="pendingUpdate.body" class="new-version-notes custom-scrollbar">
+                {{ pendingUpdate.body }}
               </div>
+
+              <!-- 下载中：应用内进度条展示 -->
+              <div v-if="downloadState === 'downloading'" class="update-progress-container">
+                <div class="update-progress-info">
+                  <span class="progress-status-text">
+                    <SvgIcon name="refresh" size="12" class="spin-icon" />
+                    正在下载更新并校验数字签名...
+                  </span>
+                  <span class="progress-size-text">
+                    {{ formatBytes(downloadedBytes) }} / {{ totalBytes > 0 ? formatBytes(totalBytes) : '未知' }} ({{ downloadPercent }}%)
+                  </span>
+                </div>
+                <div class="update-progress-bar-bg">
+                  <div class="update-progress-bar-fill" :style="{ width: `${downloadPercent}%` }"></div>
+                </div>
+              </div>
+
+              <!-- 下载完成且签名校验通过：更新已就绪 -->
+              <div v-else-if="downloadState === 'ready'" class="update-ready-box">
+                <div class="ready-icon-title">
+                  <SvgIcon name="check" size="15" />
+                  <span class="ready-title">更新已就绪，点击重启体验</span>
+                </div>
+                <span class="ready-desc">新版本安装包已下载并通过 Minisign 数字签名校验，将执行原地静默覆盖安装。</span>
+              </div>
+
+              <!-- 下载出错提示 -->
+              <div v-else-if="downloadState === 'error'" class="update-error-box">
+                <SvgIcon name="close" size="13" />
+                <span>{{ downloadErrorMsg }}</span>
+              </div>
+
+              <!-- 操作按钮栏 -->
               <div class="new-version-footer">
-                <button class="action-btn primary" @click="handleGoDownload(updateInfo.releaseUrl)">
-                  <SvgIcon name="external-link" size="13" />
-                  <span>前往下载最新安装包</span>
-                </button>
-                <button class="action-btn secondary" @click="updateInfo = null">
-                  暂不更新
-                </button>
+                <template v-if="downloadState === 'idle'">
+                  <button class="action-btn primary" @click="handleStartDownload">
+                    <SvgIcon name="download" size="13" />
+                    <span>立即下载更新</span>
+                  </button>
+                  <button class="action-btn secondary" @click="handleDismissUpdate">
+                    暂不更新
+                  </button>
+                </template>
+
+                <template v-else-if="downloadState === 'downloading'">
+                  <button class="action-btn secondary" disabled>
+                    <SvgIcon name="refresh" size="12" class="spin-icon" />
+                    <span>正在下载 ({{ downloadPercent }}%)...</span>
+                  </button>
+                </template>
+
+                <template v-else-if="downloadState === 'ready'">
+                  <button class="action-btn primary restart-btn" :disabled="isRestarting" @click="handleRestartAndInstall">
+                    <SvgIcon v-if="isRestarting" name="refresh" size="13" class="spin-icon" />
+                    <SvgIcon v-else name="refresh" size="13" />
+                    <span>{{ isRestarting ? '正在拉起安装程序...' : '立即重启体验' }}</span>
+                  </button>
+                </template>
+
+                <template v-else-if="downloadState === 'error'">
+                  <button class="action-btn primary" @click="handleStartDownload">
+                    <SvgIcon name="refresh" size="13" />
+                    <span>重试下载</span>
+                  </button>
+                  <button class="action-btn secondary" @click="handleDismissUpdate">
+                    关闭
+                  </button>
+                </template>
               </div>
             </div>
 
@@ -361,6 +422,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { check, type Update } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import SvgIcon from './SvgIcon.vue'
 import { useConfig, GlobalConfig } from '../composables/useConfig'
 
@@ -370,13 +433,6 @@ export interface FileAssociationItem {
   is_default: boolean
   current_app: string
   is_registered?: boolean
-}
-
-interface UpdateCheckResult {
-  hasUpdate: boolean
-  latestVersion: string
-  releaseNotes: string
-  releaseUrl: string
 }
 
 const props = defineProps<{
@@ -531,71 +587,140 @@ const handlePromptAssociate = async (ext: string, event?: Event) => {
   }
 }
 
-// =================== 检查更新逻辑 ===================
+// =================== 检查更新逻辑 (Tauri 2 原生静默更新) ===================
 const currentAppVersion = 'v0.2.0'
 const isCheckingUpdate = ref(false)
-const updateStatusText = ref('点击右侧按钮手动连接官方清单检查')
-const updateInfo = ref<UpdateCheckResult | null>(null)
+const updateStatusText = ref('点击右侧按钮连接官方服务器检查更新')
+const pendingUpdate = ref<Update | null>(null)
 
-// 版本号字符串比对 (如 'v0.1.0' 与 'v0.2.0')
-const compareSemver = (v1: string, v2: string): number => {
-  const parse = (s: string) =>
-    s.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0)
-  const [a1, b1, c1] = parse(v1)
-  const [a2, b2, c2] = parse(v2)
-  if (a1 !== a2) return a1 - a2
-  if (b1 !== b2) return b1 - b2
-  return c1 - c2
+// 下载与安装阶段状态: 'idle' | 'downloading' | 'ready' | 'error'
+const downloadState = ref<'idle' | 'downloading' | 'ready' | 'error'>('idle')
+const downloadedBytes = ref(0)
+const totalBytes = ref(0)
+const downloadPercent = ref(0)
+const downloadErrorMsg = ref('')
+const isRestarting = ref(false)
+
+const formatBytes = (bytes: number): string => {
+  if (!bytes || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const val = (bytes / Math.pow(1024, i)).toFixed(1)
+  return `${val} ${units[i]}`
+}
+
+const formatDate = (dateStr?: string): string => {
+  if (!dateStr) return ''
+  try {
+    const d = new Date(dateStr)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  } catch {
+    return dateStr
+  }
 }
 
 const handleCheckUpdate = async () => {
   if (isCheckingUpdate.value) return
   isCheckingUpdate.value = true
-  updateStatusText.value = '正在连接 GitHub 获取最新版本信息...'
-  updateInfo.value = null
+  updateStatusText.value = '正在连接官方更新服务器检测最新版本...'
+
+  if (pendingUpdate.value) {
+    try {
+      await pendingUpdate.value.close()
+    } catch (_) {}
+    pendingUpdate.value = null
+  }
+  downloadState.value = 'idle'
+  downloadedBytes.value = 0
+  totalBytes.value = 0
+  downloadPercent.value = 0
+  downloadErrorMsg.value = ''
 
   try {
-    const res = await fetch('https://api.github.com/repos/gavincrossv1/Pulse-Player/releases/latest', {
-      headers: {
-        Accept: 'application/vnd.github.v3+json',
-      },
-    })
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`)
-    }
-
-    const data = await res.json()
-    const latestTag = data.tag_name || ''
-    const releaseUrl = data.html_url || 'https://github.com/gavincrossv1/Pulse-Player/releases'
-    const releaseNotes = (data.body || '').trim()
-
-    if (compareSemver(latestTag, currentAppVersion) > 0) {
-      // 存在更新
-      updateStatusText.value = `已检测到新版本: ${latestTag}`
-      updateInfo.value = {
-        hasUpdate: true,
-        latestVersion: latestTag,
-        releaseNotes,
-        releaseUrl,
-      }
+    const update = await check()
+    if (update) {
+      pendingUpdate.value = update
+      updateStatusText.value = `已检测到新版本: v${update.version}`
     } else {
       updateStatusText.value = `当前已是最新版本 (${currentAppVersion})，无需更新`
     }
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('检查更新失败:', err)
-    updateStatusText.value = '检查更新失败，请检查网络连接后重试'
+    const errText = (err as Error)?.message || String(err)
+    if (errText.includes('Could not fetch a valid release') || errText.includes('404')) {
+      updateStatusText.value = `当前已是最新版本 (${currentAppVersion})，官方暂无新版本发布`
+    } else {
+      updateStatusText.value = '检查更新失败，请检查网络连接后重试'
+    }
   } finally {
     isCheckingUpdate.value = false
   }
 }
 
-const handleGoDownload = async (url: string) => {
+const handleStartDownload = async () => {
+  if (!pendingUpdate.value || downloadState.value === 'downloading') return
+  downloadState.value = 'downloading'
+  downloadedBytes.value = 0
+  totalBytes.value = 0
+  downloadPercent.value = 0
+  downloadErrorMsg.value = ''
+
   try {
-    await invoke('open_external_url', { url })
-  } catch (err) {
-    console.error('打开更新页面异常:', err)
+    let accumulated = 0
+    await pendingUpdate.value.download((event) => {
+      if (event.event === 'Started') {
+        totalBytes.value = event.data.contentLength ?? 0
+      } else if (event.event === 'Progress') {
+        accumulated += event.data.chunkLength
+        downloadedBytes.value = accumulated
+        if (totalBytes.value > 0) {
+          downloadPercent.value = Math.min(
+            100,
+            Math.round((accumulated / totalBytes.value) * 100)
+          )
+        }
+      } else if (event.event === 'Finished') {
+        downloadPercent.value = 100
+      }
+    })
+
+    // 下载完成并通过 Minisign 数字签名校验
+    downloadState.value = 'ready'
+  } catch (err: unknown) {
+    console.error('下载或验证更新包失败:', err)
+    downloadState.value = 'error'
+    downloadErrorMsg.value = `下载更新失败: ${(err as Error)?.message || String(err)}`
   }
+}
+
+const handleRestartAndInstall = async () => {
+  if (!pendingUpdate.value || isRestarting.value) return
+  isRestarting.value = true
+  try {
+    // Windows 下调用 install 会启动静默安装程序并退出主进程释放文件锁
+    await pendingUpdate.value.install({ restartAfterInstall: true })
+    // 降级兜底：若未退出则主动调用 relaunch
+    await relaunch()
+  } catch (err: unknown) {
+    console.error('拉起安装更新异常:', err)
+    try {
+      await relaunch()
+    } catch {
+      downloadState.value = 'error'
+      downloadErrorMsg.value = `拉起安装程序失败: ${(err as Error)?.message || String(err)}`
+      isRestarting.value = false
+    }
+  }
+}
+
+const handleDismissUpdate = async () => {
+  if (pendingUpdate.value) {
+    try {
+      await pendingUpdate.value.close()
+    } catch (_) {}
+    pendingUpdate.value = null
+  }
+  downloadState.value = 'idle'
 }
 
 const handleOpenGithub = async () => {
@@ -631,6 +756,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
+  if (pendingUpdate.value && downloadState.value !== 'downloading') {
+    pendingUpdate.value.close().catch(() => {})
+  }
 })
 </script>
 
@@ -1219,11 +1347,109 @@ onUnmounted(() => {
   border-radius: 4px;
 }
 
+.new-version-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.update-progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.update-progress-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  gap: 8px;
+}
+
+.progress-status-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pulse-pink);
+  font-weight: 500;
+}
+
+.progress-size-text {
+  color: rgba(255, 255, 255, 0.7);
+  font-family: monospace;
+}
+
+.update-progress-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.update-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FF2E88, #FB7299);
+  border-radius: 3px;
+  transition: width 0.15s ease-out;
+  box-shadow: 0 0 8px rgba(251, 114, 153, 0.6);
+}
+
+.update-ready-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+  border-radius: 6px;
+}
+
+.ready-icon-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #2ECC71;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.ready-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.4;
+}
+
+.update-error-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(231, 76, 60, 0.12);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-radius: 6px;
+  color: #E74C3C;
+  font-size: 11.5px;
+}
+
 .new-version-footer {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 4px;
+}
+
+.restart-btn {
+  background: #2ECC71 !important;
+  box-shadow: 0 2px 10px rgba(46, 204, 113, 0.35) !important;
+}
+
+.restart-btn:hover:not(:disabled) {
+  background: #27AE60 !important;
 }
 
 .about-footer-info {
