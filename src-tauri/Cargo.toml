@@ -1,6 +1,6 @@
 [package]
 name = "pulse-player"
-version = "0.2.0"
+version = "0.3.0"
 description = "Pulse Player 本地极简离线媒体播放器"
 authors = ["Pulse Player Team"]
 edition = "2021"

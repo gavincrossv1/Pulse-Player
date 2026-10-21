@@ -41,6 +41,14 @@
 
         <!-- 内容区域 -->
         <div class="modal-body custom-scrollbar">
+          <!-- 全局友好成功气泡 / 提示条 -->
+          <transition name="toast-slide">
+            <div v-if="toastVisible" class="assoc-toast">
+              <SvgIcon name="check" size="14" />
+              <span>{{ toastMessage }}</span>
+            </div>
+          </transition>
+
           <!-- ================= TAB 1: 播放偏好 ================= -->
           <div v-if="currentTab === 'playback'" class="tab-pane">
             <!-- 左右键快进/快退步长 -->
@@ -142,17 +150,24 @@
                 </button>
               </div>
             </div>
+
+            <!-- 恢复默认偏好选项 -->
+            <div class="setting-item reset-setting-item">
+              <div class="setting-label-col">
+                <span class="item-title">恢复默认偏好</span>
+                <span class="item-desc">将快进步长、倍速、滚轮幅度与自动续播恢复为初始值</span>
+              </div>
+              <div class="option-actions">
+                <button class="action-btn secondary reset-btn" @click="handleResetPlaybackConfig">
+                  <SvgIcon name="refresh" size="12" />
+                  <span>恢复默认设置</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- ================= TAB 2: 文件关联 ================= -->
           <div v-else-if="currentTab === 'association'" class="tab-pane">
-            <!-- 友好成功气泡 / 提示条 -->
-            <transition name="toast-slide">
-              <div v-if="toastVisible" class="assoc-toast">
-                <SvgIcon name="check" size="14" />
-                <span>{{ toastMessage }}</span>
-              </div>
-            </transition>
 
             <!-- 顶栏：说明与快捷操作工具栏 -->
             <div class="assoc-top-card">
@@ -199,7 +214,7 @@
                   视频格式
                   <span class="count-badge">({{ selectedVideoCount }} / {{ videoAssocList.length }})</span>
                 </span>
-                <span class="group-badge">支持原生 GPU 硬件直解加速</span>
+                <span class="group-badge">共 10 种视频格式</span>
               </div>
               <div class="ext-grid">
                 <div
@@ -257,7 +272,7 @@
                   音频格式
                   <span class="count-badge">({{ selectedAudioCount }} / {{ audioAssocList.length }})</span>
                 </span>
-                <span class="group-badge">高保真无损音质原生解码</span>
+                <span class="group-badge">共 9 种音频格式</span>
               </div>
               <div class="ext-grid">
                 <div
@@ -316,7 +331,7 @@
                 <SvgIcon name="pulse-logo" size="58" />
               </div>
               <div class="about-title">Pulse Player</div>
-              <div class="about-slogan">极简 · 原生硬件直解 · 离线媒体播放器</div>
+              <div class="about-slogan">轻量简洁的本地离线媒体播放器</div>
               <div class="about-version-badge">版本 {{ currentAppVersion }}</div>
             </div>
 
@@ -422,10 +437,9 @@
 
             <!-- 关于软件说明与开源协议 -->
             <div class="about-footer-info">
-              <p>采用 Tauri 2.0 (Rust) + libmpv 原生硬件直解内核 + Vue 3 构建</p>
               <button class="github-link-btn" @click="handleOpenGithub">
                 <SvgIcon name="external-link" size="12" />
-                <span>访问官方开源项目主页 (GitHub)</span>
+                <span>访问开源项目主页 (GitHub)</span>
               </button>
             </div>
           </div>
@@ -434,7 +448,7 @@
         <!-- 底部说明与完成按钮 -->
         <div class="modal-footer">
           <span class="footer-tip">
-            {{ currentTab === 'playback' ? '全局配置修改即时保存' : currentTab === 'association' ? '关联状态以当前 Windows 注册表为准' : 'Pulse Player 遵循 KISS 原则与硬件直解哲学' }}
+            {{ currentTab === 'playback' ? '全局配置修改即时保存' : currentTab === 'association' ? '关联状态以当前 Windows 注册表为准' : 'Pulse Player 本地媒体播放器' }}
           </span>
           <button class="done-btn" @click="emit('close')">完成</button>
         </div>
@@ -467,7 +481,12 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const { globalConfig, saveGlobalConfig } = useConfig()
+const { globalConfig, saveGlobalConfig, resetGlobalConfigToDefault } = useConfig()
+
+const handleResetPlaybackConfig = () => {
+  resetGlobalConfigToDefault()
+  showToast('✓ 播放偏好已恢复为默认设置')
+}
 
 // Tab 状态: 'playback' | 'association' | 'about'
 const currentTab = ref<'playback' | 'association' | 'about'>('playback')
@@ -650,7 +669,7 @@ const handlePromptAssociate = async (ext: string, event?: Event) => {
 }
 
 // =================== 检查更新逻辑 (Tauri 2 原生静默更新) ===================
-const currentAppVersion = 'v0.2.0'
+const currentAppVersion = 'v0.3.0'
 const isCheckingUpdate = ref(false)
 const updateStatusText = ref('点击右侧按钮连接官方服务器检查更新')
 const pendingUpdate = ref<Update | null>(null)
@@ -1000,6 +1019,19 @@ onUnmounted(() => {
   background: var(--pulse-pink);
   color: #FFFFFF;
   box-shadow: 0 2px 8px rgba(251, 114, 153, 0.35);
+}
+
+.reset-setting-item {
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  margin-top: 4px;
+  padding-top: 14px;
+}
+
+.reset-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 /* 文件关联专区 (对标 Bandizip 体验) */

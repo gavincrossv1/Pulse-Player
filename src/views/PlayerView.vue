@@ -40,7 +40,7 @@
           <div class="audio-title">{{ currentVideoName }}</div>
           <div class="audio-badge-row">
             <span class="audio-tag">{{ audioFormatTag }}</span>
-            <span class="audio-hint">原生高保真音频硬件直解中</span>
+            <span class="audio-hint">本地音频播放中</span>
           </div>
         </div>
       </div>

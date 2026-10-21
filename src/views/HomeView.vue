@@ -39,7 +39,7 @@
           <SvgIcon name="pulse-logo" size="76" class="hero-logo" />
         </div>
         <h1 class="hero-title">Pulse Player</h1>
-        <p class="hero-desc">现代极简 · 硬件直解 · 极速离线媒体播放器</p>
+        <p class="hero-desc">简洁高效的本地离线媒体播放器</p>
       </div>
 
       <!-- 交互式投落胶囊 (Drop Capsule: 一体化选择与拖拽唤起) -->

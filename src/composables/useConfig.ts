@@ -51,6 +51,17 @@ export function saveGlobalConfig(newConfig: Partial<GlobalConfig>) {
   }
 }
 
+// 恢复出厂默认偏好配置
+export function resetGlobalConfigToDefault() {
+  Object.assign(globalConfig, DEFAULT_GLOBAL_CONFIG)
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_GLOBAL_CONFIG))
+    localStorage.removeItem(LEGACY_STORAGE_KEY)
+  } catch (e) {
+    console.error('重置全局配置失败:', e)
+  }
+}
+
 // 2. 当前视频的临时配置 (内存级，打开新视频时从全局默认克隆，不污染全局)
 export const currentVideoConfig = reactive({
   seekStep: 5,
@@ -75,6 +86,7 @@ export function useConfig() {
     currentVideoConfig,
     loadGlobalConfig,
     saveGlobalConfig,
+    resetGlobalConfigToDefault,
     resetCurrentVideoConfig,
   }
 }
