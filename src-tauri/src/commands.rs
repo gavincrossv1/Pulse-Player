@@ -3,7 +3,11 @@
 
 use std::sync::Mutex;
 use tauri::{AppHandle, State, Window};
-use crate::associations::{get_all_associations, open_default_apps_settings as do_open_default_apps, prompt_associate_extension as do_prompt_associate, FileAssociationItem};
+use crate::associations::{
+    apply_file_associations as do_apply_associations, get_all_associations,
+    open_default_apps_settings as do_open_default_apps,
+    prompt_associate_extension as do_prompt_associate, FileAssociationItem,
+};
 use crate::history::{clear_history, delete_history_record, load_history, save_history_record, HistoryRecord};
 use crate::mpv_player::MpvPlayer;
 use crate::playlist::{scan_folder_videos, PlaylistItem, SUPPORTED_EXTENSIONS};
@@ -283,6 +287,12 @@ pub fn close_window(window: Window) -> Result<(), String> {
 #[tauri::command]
 pub fn get_file_associations() -> Result<Vec<FileAssociationItem>, String> {
     Ok(get_all_associations())
+}
+
+/// 批量应用用户所勾选的文件格式关联
+#[tauri::command]
+pub fn apply_file_associations(selected_exts: Vec<String>) -> Result<(), String> {
+    do_apply_associations(&selected_exts)
 }
 
 /// 唤起 Windows 系统默认应用设置面板

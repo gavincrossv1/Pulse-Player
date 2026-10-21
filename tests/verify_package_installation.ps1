@@ -68,6 +68,9 @@ Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Pulse Player" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Bi-Player" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\Software\pulseplayer" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKCU:\Software\PulsePlayer" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "HKCU:\Software\Applications\pulse-player.exe" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKCU:\Software\RegisteredApplications" -Name "PulsePlayer" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\Software\biplayer" -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "[PASS] 安装包程序启动正常，无 DLL 缺失弹窗或崩溃！[OK]" -ForegroundColor Green

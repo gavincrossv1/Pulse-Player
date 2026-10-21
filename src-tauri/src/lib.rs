@@ -61,6 +61,9 @@ pub fn run() {
     tauri::Builder::default()
         .manage(app_state)
         .setup(move |app| {
+            // 确保 Windows 应用程序能力模型及 SupportedTypes 基础注册表键就绪
+            let _ = associations::register_base_capabilities();
+
             // 若为首个实例，启动后台单实例 IPC 监听线程
             if let Some(listener) = single_instance_listener {
                 let app_handle = app.handle().clone();
@@ -138,6 +141,7 @@ pub fn run() {
             is_fullscreen,
             close_window,
             get_file_associations,
+            apply_file_associations,
             open_default_apps_settings,
             prompt_associate_extension,
             open_external_url,
