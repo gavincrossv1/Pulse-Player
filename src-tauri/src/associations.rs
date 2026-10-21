@@ -206,6 +206,9 @@ fn format_friendly_app_name(prog_id: &str) -> (bool, String) {
         return (true, "Pulse Player".to_string());
     }
 
+    if lower.contains("musicplayer2") {
+        return (false, "MusicPlayer2".to_string());
+    }
     if lower.contains("potplayer") {
         return (false, "PotPlayer".to_string());
     }
@@ -491,12 +494,20 @@ pub fn get_all_associations() -> Vec<FileAssociationItem> {
     results
 }
 
-/// 打开 Windows 原生默认应用设置面板 (ms-settings:defaultapps)
+/// 打开 Windows 原生默认应用设置面板 (优先尝试定位至 Pulse Player)
 pub fn open_default_apps_settings() -> Result<(), String> {
-    Command::new("cmd")
-        .args(["/c", "start", "ms-settings:defaultapps"])
-        .spawn()
-        .map_err(|e| format!("打开系统默认应用设置失败: {}", e))?;
+    // 优先尝试直接定位到 PulsePlayer 默认应用设置（Windows 10 1709+ / Windows 11 原生支持）
+    let direct_url = "ms-settings:defaultapps?registeredAppUser=PulsePlayer";
+    let res = Command::new("cmd")
+        .args(["/c", "start", direct_url])
+        .spawn();
+
+    if res.is_err() {
+        Command::new("cmd")
+            .args(["/c", "start", "ms-settings:defaultapps"])
+            .spawn()
+            .map_err(|e| format!("打开系统默认应用设置失败: {}", e))?;
+    }
     Ok(())
 }
 

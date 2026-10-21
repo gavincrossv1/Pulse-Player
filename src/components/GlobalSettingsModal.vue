@@ -159,7 +159,7 @@
               <div class="assoc-intro">
                 <span class="assoc-intro-title">媒体文件关联管理</span>
                 <span class="assoc-intro-desc">
-                  自由勾选需由 Pulse Player 关联的媒体格式。点击【立即应用】将批量写入 Windows 规范应用程序能力模型及打开方式推荐列表。
+                  自由勾选需由 Pulse Player 关联的媒体格式。点击【立即应用】批量登记；若部分格式已被第三方软件锁定，可点击右侧按钮直接设为默认。
                 </span>
               </div>
               <div class="assoc-actions-bar">
@@ -225,14 +225,26 @@
                   </div>
 
                   <div class="card-right">
+                    <!-- 已经是系统默认播放器 -->
                     <span
-                      class="ext-status"
-                      :class="{ 'is-pulse': item.is_default }"
-                      :title="item.is_default ? '已是系统默认播放器' : `当前系统默认: ${item.current_app} (点击呼出设置向导)`"
-                      @click="handlePromptAssociate(item.ext, $event)"
+                      v-if="item.is_default"
+                      class="ext-status is-pulse"
+                      title="已是系统默认播放器"
                     >
-                      {{ item.is_default ? '默认' : item.current_app }}
+                      <SvgIcon name="check" size="10" />
+                      <span>默认</span>
                     </span>
+                    <!-- 被其他软件锁定或未指定默认: 可点击一键唤起授权弹窗 -->
+                    <button
+                      v-else
+                      class="ext-action-btn"
+                      :title="`当前默认: ${item.current_app}。点击呼出系统对话框设为默认`"
+                      @click.stop="handlePromptAssociate(item.ext, $event)"
+                    >
+                      <span class="action-btn-text">{{ item.current_app }}</span>
+                      <span class="action-btn-hover-text">设为默认</span>
+                      <SvgIcon name="external-link" size="10" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -271,14 +283,26 @@
                   </div>
 
                   <div class="card-right">
+                    <!-- 已经是系统默认播放器 -->
                     <span
-                      class="ext-status"
-                      :class="{ 'is-pulse': item.is_default }"
-                      :title="item.is_default ? '已是系统默认播放器' : `当前系统默认: ${item.current_app} (点击呼出设置向导)`"
-                      @click="handlePromptAssociate(item.ext, $event)"
+                      v-if="item.is_default"
+                      class="ext-status is-pulse"
+                      title="已是系统默认播放器"
                     >
-                      {{ item.is_default ? '默认' : item.current_app }}
+                      <SvgIcon name="check" size="10" />
+                      <span>默认</span>
                     </span>
+                    <!-- 被其他软件锁定或未指定默认: 可点击一键唤起授权弹窗 -->
+                    <button
+                      v-else
+                      class="ext-action-btn"
+                      :title="`当前默认: ${item.current_app}。点击呼出系统对话框设为默认`"
+                      @click.stop="handlePromptAssociate(item.ext, $event)"
+                    >
+                      <span class="action-btn-text">{{ item.current_app }}</span>
+                      <span class="action-btn-hover-text">设为默认</span>
+                      <SvgIcon name="external-link" size="10" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -555,8 +579,21 @@ const handleApplyAssociations = async () => {
       selectedExts: Array.from(selectedExts.value),
     })
     localStorage.setItem('pulse_player_assoc_configured', 'true')
-    showToast('✓ 文件关联已成功应用！已写入系统注册表并通知 Windows 外壳刷新。')
     await fetchAssociations(false)
+
+    // 智能分析当前勾选的格式生效状态
+    const selectedItems = assocList.value.filter((i) => selectedExts.value.has(i.ext))
+    const lockedItems = selectedItems.filter((i) => !i.is_default)
+
+    if (lockedItems.length === 0) {
+      showToast('✓ 所选媒体格式已全部成功生效为系统默认播放器！')
+    } else {
+      const sampleNames = lockedItems.slice(0, 2).map((i) => '.' + i.ext.toUpperCase()).join('、')
+      const count = lockedItems.length
+      showToast(
+        `✓ 基础关联已就绪！${sampleNames}等 ${count} 项被第三方软件锁定，可点击右侧按钮直接设为默认。`
+      )
+    }
   } catch (err) {
     console.error('应用文件关联失败:', err)
     showToast('✕ 应用文件关联失败: ' + String(err))
@@ -582,6 +619,11 @@ const handlePromptAssociate = async (ext: string, event?: Event) => {
   if (event) event.stopPropagation()
   try {
     await invoke('prompt_associate_extension', { ext })
+    // 用户在 Windows 对话框中完成选择后，监听窗口聚焦与延时自动刷新，即时呈现生效结果
+    const refreshLater = () => fetchAssociations(true)
+    setTimeout(refreshLater, 1500)
+    setTimeout(refreshLater, 3500)
+    window.addEventListener('focus', refreshLater, { once: true })
   } catch (err) {
     console.error('唤起打开方式弹窗失败:', err)
   }
@@ -1133,31 +1175,74 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .ext-status {
   font-size: 10px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.05);
+  color: #2ECC71;
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid rgba(46, 204, 113, 0.28);
   padding: 2px 6px;
   border-radius: 4px;
   white-space: nowrap;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  user-select: none;
+}
+
+/* 非默认状态时的交互按钮：悬停变为“设为默认”高亮并提示点击 */
+.ext-action-btn {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 86px;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+}
+
+.ext-action-btn .action-btn-text {
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 75px;
-  transition: all 0.15s ease;
+  white-space: nowrap;
+  display: inline-block;
+  max-width: 58px;
 }
 
-.ext-status:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-}
-
-.ext-status.is-pulse {
-  color: #2ECC71;
-  background: rgba(46, 204, 113, 0.12);
-  border: 1px solid rgba(46, 204, 113, 0.25);
+.ext-action-btn .action-btn-hover-text {
+  display: none;
   font-weight: 500;
+}
+
+.ext-action-btn:hover {
+  background: rgba(251, 114, 153, 0.18);
+  border-color: rgba(251, 114, 153, 0.55);
+  color: #ffffff;
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 6px rgba(251, 114, 153, 0.2);
+}
+
+.ext-action-btn:hover .action-btn-text {
+  display: none;
+}
+
+.ext-action-btn:hover .action-btn-hover-text {
+  display: inline-block;
+  color: #ffffff;
+}
+
+.ext-action-btn:active {
+  transform: translateY(0);
 }
 
 /* 自定义复选框样式 */
